@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: react-burn-tracker
+    runtime: node
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: RPC_URL
+        value: https://mainnet-rpc.rnk.dev/
+      - key: REACT_TOKEN_ADDRESS
+        value: "0x0000000000000000000000000000000000fffFfF"
+      - key: PORT
+        value: 10000
+      - key: CHAIN_ID
+        value: "1597"
+    disk:
+      name: burns-data
+      mountPath: /app/data
+      sizeGB: 1
