@@ -120,15 +120,19 @@ async function processBurnEvent(event) {
     const block = await web3.eth.getBlock(blockNumber);
     const timestamp = block.timestamp;
     
-    // Convert value from Wei to token units (assuming 18 decimals)
-    const amount = web3.utils.fromWei(value, 'ether');
-    const usdValue = parseFloat(amount) * currentPrice;
+    // Convert value from Wei to token units
+    // Check if REACT uses different decimals - adjust if needed
+    const decimals = 18; // Adjust this if REACT uses different decimals
+    const amount = parseFloat(web3.utils.fromWei(value, 'ether'));
+    const usdValue = amount * currentPrice;
+    
+    console.log(`Burn detected: ${amount} REACT from ${from} in tx ${transactionHash}`);
     
     // Store in database
     db.run(
       `INSERT OR IGNORE INTO burns (tx_hash, block_number, amount, from_address, timestamp, usd_value) 
        VALUES (?, ?, ?, ?, ?, ?)`,
-      [transactionHash, blockNumber, amount, from, timestamp, usdValue],
+      [transactionHash, blockNumber, amount.toFixed(18), from, timestamp, usdValue],
       (err) => {
         if (err) {
           console.error('Error inserting burn:', err);
@@ -154,46 +158,79 @@ async function processBurnEvent(event) {
   }
 }
 
-// Subscribe to burn events
-async function subscribeToBurnEvents() {
+// Subscribe to new blocks and track gas fees
+async function subscribeToBlocks() {
   try {
-    const contract = new web3.eth.Contract([TRANSFER_EVENT_ABI], REACT_TOKEN_ADDRESS);
+    const subscription = await web3.eth.subscribe('newBlockHeaders');
     
-    // Get or set deployment block
-    let deploymentBlock;
-    const currentBlock = await web3.eth.getBlockNumber();
-    
-    db.get('SELECT value FROM metadata WHERE key = ?', ['deployment_block'], async (err, row) => {
-      if (!row) {
-        // First time deployment - save current block
-        deploymentBlock = currentBlock;
-        const deploymentTime = new Date().toISOString();
+    subscription.on('data', async (blockHeader) => {
+      try {
+        // Get full block with transactions
+        const block = await web3.eth.getBlock(blockHeader.number, true);
         
-        db.run('INSERT INTO metadata (key, value) VALUES (?, ?)', ['deployment_block', deploymentBlock.toString()]);
-        db.run('INSERT INTO metadata (key, value) VALUES (?, ?)', ['deployment_time', deploymentTime]);
-        
-        console.log(`First deployment! Starting tracking from block ${deploymentBlock}`);
-      } else {
-        deploymentBlock = BigInt(row.value);
-        console.log(`Resuming from deployment block ${deploymentBlock}, current block ${currentBlock}`);
+        if (block && block.transactions && block.transactions.length > 0) {
+          console.log(`Processing block ${block.number} with ${block.transactions.length} transactions`);
+          
+          for (const tx of block.transactions) {
+            // Get transaction receipt for actual gas used
+            const receipt = await web3.eth.getTransactionReceipt(tx.hash);
+            
+            if (receipt) {
+              // Calculate burned REACT: gasUsed * gasPrice
+              const gasUsed = BigInt(receipt.gasUsed);
+              const gasPrice = BigInt(tx.gasPrice || '0');
+              const burnedWei = gasUsed * gasPrice;
+              
+              // Convert from Wei to REACT (18 decimals)
+              const burnedReact = parseFloat(web3.utils.fromWei(burnedWei.toString(), 'ether'));
+              const usdValue = burnedReact * currentPrice;
+              
+              console.log(`Transaction ${tx.hash}: burned ${burnedReact} REACT`);
+              
+              // Store in database
+              db.run(
+                `INSERT OR IGNORE INTO burns (tx_hash, block_number, amount, from_address, timestamp, usd_value) 
+                 VALUES (?, ?, ?, ?, ?, ?)`,
+                [tx.hash, block.number, burnedReact.toFixed(18), tx.from, block.timestamp, usdValue],
+                (err) => {
+                  if (err && !err.message.includes('UNIQUE constraint failed')) {
+                    console.error('Error inserting burn:', err);
+                    return;
+                  }
+                  
+                  // Broadcast to WebSocket clients
+                  broadcast({
+                    type: 'new_burn',
+                    data: {
+                      txHash: tx.hash,
+                      block: block.number,
+                      amount: burnedReact,
+                      from: tx.from,
+                      timestamp: block.timestamp * 1000,
+                      usdValue: usdValue
+                    }
+                  });
+                }
+              );
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error processing block:', error);
       }
-      
-      // Subscribe to Transfer events where 'to' is the burn address
-      // For Web3 v4, we need to handle the subscription differently
-      const subscription = await contract.events.Transfer({
-        filter: { to: BURN_ADDRESS },
-        fromBlock: deploymentBlock.toString()
-      });
-      
-      subscription.on('data', processBurnEvent);
-      subscription.on('error', console.error);
-      
-      console.log('Subscribed to burn events');
     });
+    
+    subscription.on('error', (error) => {
+      console.error('Block subscription error:', error);
+      // Retry subscription after 5 seconds
+      setTimeout(subscribeToBlocks, 5000);
+    });
+    
+    console.log('Subscribed to new blocks for fee tracking');
   } catch (error) {
-    console.error('Error subscribing to events:', error);
+    console.error('Error subscribing to blocks:', error);
     // Retry after 5 seconds
-    setTimeout(subscribeToBurnEvents, 5000);
+    setTimeout(subscribeToBlocks, 5000);
   }
 }
 
