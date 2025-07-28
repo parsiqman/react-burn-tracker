@@ -23,34 +23,45 @@ const web3 = new Web3(process.env.RPC_URL || 'https://rpc.reactive.network');
 const db = new sqlite3.Database(':memory:');
 console.log('Using in-memory database (data will reset on restart)');
 
-// Create burns table if it doesn't exist
-db.run(`
-  CREATE TABLE IF NOT EXISTS burns (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    tx_hash TEXT UNIQUE NOT NULL,
-    block_number INTEGER NOT NULL,
-    amount TEXT NOT NULL,
-    from_address TEXT NOT NULL,
-    timestamp INTEGER NOT NULL,
-    usd_value REAL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )
-`);
+// Initialize tables with proper callbacks
+function initializeDatabase(callback) {
+  db.serialize(() => {
+    // Create burns table
+    db.run(`
+      CREATE TABLE IF NOT EXISTS burns (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tx_hash TEXT UNIQUE NOT NULL,
+        block_number INTEGER NOT NULL,
+        amount TEXT NOT NULL,
+        from_address TEXT NOT NULL,
+        timestamp INTEGER NOT NULL,
+        usd_value REAL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
 
-// Create metadata table to store deployment info
-db.run(`
-  CREATE TABLE IF NOT EXISTS metadata (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-  )
-`);
+    // Create metadata table
+    db.run(`
+      CREATE TABLE IF NOT EXISTS metadata (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      )
+    `);
 
-// Create indexes for performance
-db.run('CREATE INDEX IF NOT EXISTS idx_timestamp ON burns(timestamp)');
-db.run('CREATE INDEX IF NOT EXISTS idx_block ON burns(block_number)');
+    // Create indexes
+    db.run('CREATE INDEX IF NOT EXISTS idx_timestamp ON burns(timestamp)');
+    db.run('CREATE INDEX IF NOT EXISTS idx_block ON burns(block_number)', callback);
+  });
+}
 
-// WebSocket server for real-time updates
-const wss = new WebSocket.Server({ port: 8080 });
+// WebSocket setup - moved here
+wss.on('connection', (ws) => {
+  console.log('New WebSocket client connected');
+  
+  ws.on('close', () => {
+    console.log('WebSocket client disconnected');
+  });
+});
 
 // Broadcast to all connected clients
 function broadcast(data) {
@@ -152,22 +163,24 @@ async function subscribeToBurnEvents() {
         deploymentBlock = currentBlock;
         const deploymentTime = new Date().toISOString();
         
-        db.run('INSERT INTO metadata (key, value) VALUES (?, ?)', ['deployment_block', deploymentBlock]);
+        db.run('INSERT INTO metadata (key, value) VALUES (?, ?)', ['deployment_block', deploymentBlock.toString()]);
         db.run('INSERT INTO metadata (key, value) VALUES (?, ?)', ['deployment_time', deploymentTime]);
         
         console.log(`First deployment! Starting tracking from block ${deploymentBlock}`);
       } else {
-        deploymentBlock = parseInt(row.value);
+        deploymentBlock = BigInt(row.value);
         console.log(`Resuming from deployment block ${deploymentBlock}, current block ${currentBlock}`);
       }
       
       // Subscribe to Transfer events where 'to' is the burn address
-      contract.events.Transfer({
+      // For Web3 v4, we need to handle the subscription differently
+      const subscription = await contract.events.Transfer({
         filter: { to: BURN_ADDRESS },
-        fromBlock: deploymentBlock
-      })
-      .on('data', processBurnEvent)
-      .on('error', console.error);
+        fromBlock: deploymentBlock.toString()
+      });
+      
+      subscription.on('data', processBurnEvent);
+      subscription.on('error', console.error);
       
       console.log('Subscribed to burn events');
     });
@@ -364,11 +377,19 @@ app.get('/api/health', (req, res) => {
 });
 
 // Start server
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
-  subscribeToBurnEvents();
-  updateTokenPrice();
+  
+  // Initialize database first, then start services
+  initializeDatabase(() => {
+    console.log('Database initialized');
+    subscribeToBurnEvents();
+    updateTokenPrice();
+  });
 });
+
+// Initialize WebSocket server on the same server
+const wss = new WebSocket.Server({ server });
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
