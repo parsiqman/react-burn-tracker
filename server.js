@@ -23,6 +23,62 @@ const web3 = new Web3(process.env.RPC_URL || 'https://rpc.reactive.network');
 const db = new sqlite3.Database(':memory:');
 console.log('Using in-memory database (data will reset on restart)');
 
+// REACT Token Contract Configuration
+const REACT_TOKEN_ADDRESS = process.env.REACT_TOKEN_ADDRESS || '0x0000000000000000000000000000000000fffFfF';
+const BURN_ADDRESS = '0x0000000000000000000000000000000000000000';
+
+// ABI for Transfer event (standard ERC20)
+const TRANSFER_EVENT_ABI = {
+  anonymous: false,
+  inputs: [
+    { indexed: true, name: 'from', type: 'address' },
+    { indexed: true, name: 'to', type: 'address' },
+    { indexed: false, name: 'value', type: 'uint256' }
+  ],
+  name: 'Transfer',
+  type: 'event'
+};
+
+// Price fetching (you'll need to implement based on your price source)
+let currentPrice = 0.0234; // Default price
+async function updateTokenPrice() {
+  try {
+    // TODO: Implement actual price fetching from DEX or price oracle
+    // For now, using a placeholder
+    // const price = await fetchPriceFromDEX();
+    // currentPrice = price;
+  } catch (error) {
+    console.error('Error updating price:', error);
+  }
+}
+
+// Update price every 5 minutes
+setInterval(updateTokenPrice, 5 * 60 * 1000);
+
+// Create HTTP server
+const server = require('http').createServer(app);
+
+// Initialize WebSocket server on the same server
+const wss = new WebSocket.Server({ server });
+
+// WebSocket connection handling
+wss.on('connection', (ws) => {
+  console.log('New WebSocket client connected');
+  
+  ws.on('close', () => {
+    console.log('WebSocket client disconnected');
+  });
+});
+
+// Broadcast to all connected clients
+function broadcast(data) {
+  wss.clients.forEach(client => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(JSON.stringify(data));
+    }
+  });
+}
+
 // Initialize tables with proper callbacks
 function initializeDatabase(callback) {
   db.serialize(() => {
@@ -53,56 +109,6 @@ function initializeDatabase(callback) {
     db.run('CREATE INDEX IF NOT EXISTS idx_block ON burns(block_number)', callback);
   });
 }
-
-// WebSocket setup - moved here
-wss.on('connection', (ws) => {
-  console.log('New WebSocket client connected');
-  
-  ws.on('close', () => {
-    console.log('WebSocket client disconnected');
-  });
-});
-
-// Broadcast to all connected clients
-function broadcast(data) {
-  wss.clients.forEach(client => {
-    if (client.readyState === WebSocket.OPEN) {
-      client.send(JSON.stringify(data));
-    }
-  });
-}
-
-// REACT Token Contract Configuration
-const REACT_TOKEN_ADDRESS = process.env.REACT_TOKEN_ADDRESS || '0x0000000000000000000000000000000000000000';
-const BURN_ADDRESS = '0x0000000000000000000000000000000000000000';
-
-// ABI for Transfer event (standard ERC20)
-const TRANSFER_EVENT_ABI = {
-  anonymous: false,
-  inputs: [
-    { indexed: true, name: 'from', type: 'address' },
-    { indexed: true, name: 'to', type: 'address' },
-    { indexed: false, name: 'value', type: 'uint256' }
-  ],
-  name: 'Transfer',
-  type: 'event'
-};
-
-// Price fetching (you'll need to implement based on your price source)
-let currentPrice = 0.0234; // Default price
-async function updateTokenPrice() {
-  try {
-    // TODO: Implement actual price fetching from DEX or price oracle
-    // For now, using a placeholder
-    // const price = await fetchPriceFromDEX();
-    // currentPrice = price;
-  } catch (error) {
-    console.error('Error updating price:', error);
-  }
-}
-
-// Update price every 5 minutes
-setInterval(updateTokenPrice, 5 * 60 * 1000);
 
 // Function to process burn events
 async function processBurnEvent(event) {
@@ -377,7 +383,7 @@ app.get('/api/health', (req, res) => {
 });
 
 // Start server
-const server = app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   
   // Initialize database first, then start services
@@ -388,13 +394,11 @@ const server = app.listen(PORT, () => {
   });
 });
 
-// Initialize WebSocket server on the same server
-const wss = new WebSocket.Server({ server });
-
 // Graceful shutdown
 process.on('SIGTERM', () => {
   console.log('SIGTERM received, closing server...');
   db.close();
   wss.close();
+  server.close();
   process.exit(0);
 });
