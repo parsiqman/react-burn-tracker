@@ -1,7 +1,7 @@
 // server.js - Production Backend for REACT Burn Tracker
 const express = require('express');
 const cors = require('cors');
-const Web3 = require('web3');
+const { Web3 } = require('web3');
 const sqlite3 = require('sqlite3').verbose();
 const WebSocket = require('ws');
 const path = require('path');
