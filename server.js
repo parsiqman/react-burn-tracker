@@ -18,8 +18,10 @@ app.use(express.static('public'));
 // Initialize Web3
 const web3 = new Web3(process.env.RPC_URL || 'https://rpc.reactive.network');
 
-// Initialize SQLite Database
-const db = new sqlite3.Database('./data/burns.db');
+// Initialize SQLite Database - use in-memory for free tier
+// Note: Data will be lost on restart. Upgrade to paid tier for persistence.
+const db = new sqlite3.Database(':memory:');
+console.log('Using in-memory database (data will reset on restart)');
 
 // Create burns table if it doesn't exist
 db.run(`
