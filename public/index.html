@@ -442,8 +442,8 @@
             </div>
         </div>
 
-        <!-- Chart Section -->
-        <div class="chart-section">
+        <!-- Chart Section - Hidden for now -->
+        <div class="chart-section" style="display: none;">
             <div class="chart-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
                 <h2 style="font-size: 1.25rem; font-weight: 600;">Burn History</h2>
                 <div class="time-selector">
@@ -522,6 +522,18 @@
         
         // Utility functions
         function formatNumber(num) {
+            if (num === 0) return '0';
+            
+            // For very small numbers (like 0.0000001)
+            if (num < 0.000001) {
+                return num.toExponential(2);
+            }
+            if (num < 0.01) {
+                return num.toFixed(8);
+            }
+            if (num < 1) {
+                return num.toFixed(6);
+            }
             if (num >= 1e9) return (num / 1e9).toFixed(2) + 'B';
             if (num >= 1e6) return (num / 1e6).toFixed(2) + 'M';
             if (num >= 1e3) return (num / 1e3).toFixed(2) + 'K';
