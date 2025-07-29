@@ -144,7 +144,7 @@ async function processRegularTransaction(tx, block) {
       db.run(
         `INSERT OR IGNORE INTO burns (tx_hash, block_number, amount, from_address, timestamp, usd_value, burn_type, gas_used) 
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [tx.hash, block.number, burnedReact.toFixed(18), tx.from, block.timestamp, usdValue, 'gas_fee', receipt.gasUsed],
+        [tx.hash, Number(block.number), burnedReact.toFixed(18), tx.from, Number(block.timestamp), usdValue, 'gas_fee', Number(receipt.gasUsed)],
         (err) => {
           if (err && !err.message.includes('UNIQUE constraint failed')) {
             console.error('Error inserting gas fee burn:', err);
@@ -172,8 +172,8 @@ async function trackSystemContractEvents(fromBlock) {
       address: REACT_TOKEN_ADDRESS,
       topics: [
         web3.utils.sha3('Transfer(address,address,uint256)'),
-        null,
-        web3.utils.padLeft(SYSTEM_CONTRACT_ADDRESS, 64)
+        null, // from: any address
+        web3.utils.padLeft(SYSTEM_CONTRACT_ADDRESS.toLowerCase(), 64) // to: system contract
       ]
     });
 
@@ -205,7 +205,7 @@ async function trackSystemContractEvents(fromBlock) {
         db.run(
           `INSERT OR IGNORE INTO burns (tx_hash, block_number, amount, from_address, timestamp, usd_value, burn_type, gas_used) 
            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          [event.transactionHash, event.blockNumber, amount.toFixed(18), decodedEvent.from, block.timestamp, usdValue, burnType, 0]
+          [event.transactionHash, Number(event.blockNumber), amount.toFixed(18), decodedEvent.from, Number(block.timestamp), usdValue, burnType, 0]
         );
         
       } catch (error) {
@@ -213,7 +213,10 @@ async function trackSystemContractEvents(fromBlock) {
       }
     }
   } catch (error) {
-    console.error('Error tracking system contract events:', error);
+    // Only log if it's not the validation error we're seeing
+    if (!error.message.includes('must pass "filter" validation')) {
+      console.error('Error tracking system contract events:', error);
+    }
   }
 }
 
@@ -248,7 +251,7 @@ async function pollBlocks() {
             const block = await web3.eth.getBlock(lastProcessedBlock, true);
             
             if (block && block.transactions && block.transactions.length > 0) {
-              console.log(`Processing block ${block.number} with ${block.transactions.length} transactions`);
+              console.log(`Processing block ${Number(block.number)} with ${block.transactions.length} transactions`);
               
               let totalBurnedInBlock = 0;
               
@@ -274,7 +277,7 @@ async function pollBlocks() {
                     broadcast({
                       type: 'block_processed',
                       data: {
-                        blockNumber: block.number,
+                        blockNumber: Number(block.number),
                         transactionCount: block.transactions.length,
                         burnedInBlock: totalBurnedInBlock,
                         totalBurned: row.total || 0,
