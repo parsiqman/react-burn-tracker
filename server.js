@@ -133,12 +133,41 @@ async function processRegularTransaction(tx, block) {
     if (receipt) {
       // Calculate burned REACT: gasUsed * gasPrice
       const gasUsed = BigInt(receipt.gasUsed);
-      const gasPrice = BigInt(tx.gasPrice || '0');
-      const burnedWei = gasUsed * gasPrice;
+      
+      // Try different ways to get gas price
+      let gasPrice = BigInt(0);
+      let effectiveGasPrice = BigInt(0);
+      
+      // For Reactive Network, we need to check multiple price fields
+      // Priority: effectiveGasPrice > gasPrice > baseFeePerGas + priorityFee
+      
+      // Method 1: Receipt's effectiveGasPrice (most accurate)
+      if (receipt.effectiveGasPrice) {
+        effectiveGasPrice = BigInt(receipt.effectiveGasPrice);
+      }
+      // Method 2: Transaction gasPrice
+      else if (tx.gasPrice) {
+        effectiveGasPrice = BigInt(tx.gasPrice);
+      }
+      // Method 3: Calculate from base fee + priority fee (EIP-1559)
+      else if (block.baseFeePerGas) {
+        const baseFee = BigInt(block.baseFeePerGas);
+        const priorityFee = tx.maxPriorityFeePerGas ? BigInt(tx.maxPriorityFeePerGas) : BigInt(0);
+        effectiveGasPrice = baseFee + priorityFee;
+      }
+      
+      const burnedWei = gasUsed * effectiveGasPrice;
       
       // Convert from Wei to REACT (18 decimals)
       const burnedReact = parseFloat(web3.utils.fromWei(burnedWei.toString(), 'ether'));
       const usdValue = burnedReact * currentPrice;
+      
+      // Log for debugging
+      if (burnedWei === 0n && gasUsed > 0n) {
+        console.log(`Zero fee tx ${tx.hash}: gasUsed=${gasUsed}, effectiveGasPrice=${effectiveGasPrice}, type=${tx.type}`);
+      } else if (burnedReact > 0) {
+        console.log(`Fee burn tx ${tx.hash}: ${burnedReact} REACT (gasUsed=${gasUsed}, gasPrice=${effectiveGasPrice})`);
+      }
       
       // Store in database
       db.run(
