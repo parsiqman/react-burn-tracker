@@ -2,7 +2,10 @@
       const AUTOMATION_ADDRESS = '0xaa24633108fd1d87371c55e6d7f4fa00cdeb26';
       
       if (fromAddress === AUTOMATION_ADDRESS.toLowerCase() && toAddress === SYSTEM_CONTRACT_ADDRESS.toLowerCase()) {
-        // This is// server.js - Production Backend for REACT Burn Tracker
+        // This is the known automation contract
+        transactionType = 'system_contract_payment';
+        crossChainInfo = '[RSC Automation]';
+      }// server.js - Production Backend for REACT Burn Tracker
 const express = require('express');
 const cors = require('cors');
 const { Web3 } = require('web3');
