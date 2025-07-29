@@ -24,12 +24,9 @@ const dbPath = process.env.NODE_ENV === 'production'
   ? '/app/data/burns.db'  // Persistent disk on Render
   : './burns.db';         // Local development
 
-// Ensure data directory exists
-if (process.env.NODE_ENV === 'production') {
-  const dataDir = path.dirname(dbPath);
-  if (!fs.existsSync(dataDir)) {
-    fs.mkdirSync(dataDir, { recursive: true });
-  }
+// For local development, ensure directory exists
+if (process.env.NODE_ENV !== 'production' && !fs.existsSync(path.dirname(dbPath))) {
+  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
 }
 
 const db = new sqlite3.Database(dbPath);
