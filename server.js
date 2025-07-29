@@ -20,7 +20,6 @@ app.use(express.static('public'));
 const web3 = new Web3(process.env.RPC_URL || 'https://rpc.reactive.network');
 
 // Initialize SQLite Database
-const fs = require('fs');
 const dbPath = process.env.NODE_ENV === 'production' 
   ? '/app/data/burns.db'  // Persistent disk on Render
   : './burns.db';         // Local development
@@ -34,7 +33,7 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 const db = new sqlite3.Database(dbPath);
-console.log(`Using database at: ${dbPath}`);
+console.log(`Using persistent database at: ${dbPath}`);
 
 // Important Reactive Network addresses
 const REACT_TOKEN_ADDRESS = process.env.REACT_TOKEN_ADDRESS || '0x0000000000000000000000000000000000fffFfF';
