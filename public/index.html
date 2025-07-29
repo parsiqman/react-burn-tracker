@@ -466,7 +466,7 @@
                             <th>Transaction Hash</th>
                             <th>Block</th>
                             <th>Amount</th>
-                            <th>From</th>
+                            <th>Type</th>
                             <th>Time</th>
                         </tr>
                     </thead>
@@ -595,19 +595,30 @@
                 const transactions = await res.json();
                 
                 const tbody = document.getElementById('transactionsList');
-                tbody.innerHTML = transactions.map(tx => `
-                    <tr>
-                        <td>
-                            <a href="${BLOCK_EXPLORER_URL}${tx.tx_hash}" target="_blank" class="tx-hash">
-                                ${tx.tx_hash.substring(0, 10)}...${tx.tx_hash.substring(58)}
-                            </a>
-                        </td>
-                        <td>${tx.block_number.toLocaleString()}</td>
-                        <td>${formatNumber(parseFloat(tx.amount))} REACT</td>
-                        <td>${formatAddress(tx.from_address)}</td>
-                        <td>${formatTime(tx.timestamp)}</td>
-                    </tr>
-                `).join('');
+                tbody.innerHTML = transactions.map(tx => {
+                    // Format burn type for display
+                    const typeDisplay = {
+                        'gas_fee': '<span style="color: #4ECDC4">Gas Fee</span>',
+                        'rvm_payment': '<span style="color: #FFE66D">RVM Payment</span>',
+                        'rvm_deposit': '<span style="color: #FFE66D">RVM Deposit</span>',
+                        'debt_settlement': '<span style="color: #FF6B6B">Debt Settlement</span>',
+                        'callback': '<span style="color: #764ba2">Callback</span>'
+                    };
+                    
+                    return `
+                        <tr>
+                            <td>
+                                <a href="${BLOCK_EXPLORER_URL}${tx.tx_hash}" target="_blank" class="tx-hash">
+                                    ${tx.tx_hash.substring(0, 10)}...${tx.tx_hash.substring(58)}
+                                </a>
+                            </td>
+                            <td>${tx.block_number.toLocaleString()}</td>
+                            <td>${formatNumber(parseFloat(tx.amount))} REACT</td>
+                            <td>${typeDisplay[tx.burn_type] || tx.burn_type}</td>
+                            <td>${formatTime(tx.timestamp)}</td>
+                        </tr>
+                    `;
+                }).join('');
                 
             } catch (error) {
                 console.error('Error fetching transactions:', error);
@@ -656,18 +667,23 @@
             ws.onmessage = (event) => {
                 const message = JSON.parse(event.data);
                 
-                if (message.type === 'new_burn') {
-                    // Refresh stats and transactions when new burn occurs
+                if (message.type === 'block_processed') {
+                    // Update stats with new data
                     fetchStats();
                     fetchTransactions();
                     
                     // Flash animation on total burned
                     const burnAmount = document.getElementById('totalBurned');
                     burnAmount.style.transition = 'transform 0.3s ease';
-                    burnAmount.style.transform = 'scale(1.1)';
+                    burnAmount.style.transform = 'scale(1.05)';
                     setTimeout(() => {
                         burnAmount.style.transform = 'scale(1)';
                     }, 300);
+                    
+                    // Show block info briefly
+                    if (message.data.burnedInBlock > 0) {
+                        console.log(`Block ${message.data.blockNumber}: ${message.data.transactionCount} txs, ${message.data.burnedInBlock.toFixed(8)} REACT burned`);
+                    }
                 }
             };
             
