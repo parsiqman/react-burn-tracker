@@ -1,11 +1,4 @@
-// Special handling for the automated address we're seeing
-      const AUTOMATION_ADDRESS = '0xaa24633108fd1d87371c55e6d7f4fa00cdeb26';
-      
-      if (fromAddress === AUTOMATION_ADDRESS.toLowerCase() && toAddress === SYSTEM_CONTRACT_ADDRESS.toLowerCase()) {
-        // This is the known automation contract
-        transactionType = 'system_contract_payment';
-        crossChainInfo = '[RSC Automation]';
-      }// server.js - Production Backend for REACT Burn Tracker
+// server.js - Production Backend for REACT Burn Tracker
 const express = require('express');
 const cors = require('cors');
 const { Web3 } = require('web3');
@@ -233,6 +226,9 @@ async function processRegularTransaction(tx, block) {
       let isLikelyCrossChain = false;
       let crossChainInfo = '';
       
+      const toAddress = tx.to ? tx.to.toLowerCase() : '';
+      const fromAddress = tx.from ? tx.from.toLowerCase() : '';
+      
       // Check if FROM address is a known callback proxy (cross-chain callback coming IN)
       if (ALL_CALLBACK_PROXIES.has(fromAddress)) {
         isLikelyCrossChain = true;
@@ -280,6 +276,15 @@ async function processRegularTransaction(tx, block) {
         if (!crossChainMethods[methodSig] && methodSig !== '0x') {
           console.log(`Unknown method: ${methodSig} in tx ${tx.hash} to ${toAddress}`);
         }
+      }
+      
+      // Special handling for the automated address we're seeing
+      const AUTOMATION_ADDRESS = '0xaa24633108fd1d87371c55e6d7f4fa00cdeb26';
+      
+      if (fromAddress === AUTOMATION_ADDRESS.toLowerCase() && toAddress === SYSTEM_CONTRACT_ADDRESS.toLowerCase()) {
+        // This is the known automation contract
+        transactionType = 'system_contract_payment';
+        crossChainInfo = '[RSC Automation]';
       }
       
       // Analyze transaction to determine its likely type
