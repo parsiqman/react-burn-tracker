@@ -217,67 +217,88 @@ async function trackSystemContractEvents(fromBlock) {
   }
 }
 
-// Subscribe to new blocks and track all types of burns
-async function subscribeToBlocks() {
-  try {
-    const subscription = await web3.eth.subscribe('newBlockHeaders');
+// Poll for new blocks instead of subscribing
+async function pollBlocks() {
+  let lastProcessedBlock = null;
+  
+  // Get initial block from metadata
+  db.get('SELECT value FROM metadata WHERE key = ?', ['last_processed_block'], async (err, row) => {
+    if (row) {
+      lastProcessedBlock = BigInt(row.value);
+    }
     
-    subscription.on('data', async (blockHeader) => {
+    // Start polling
+    setInterval(async () => {
       try {
-        // Get full block with transactions
-        const block = await web3.eth.getBlock(blockHeader.number, true);
+        const currentBlock = await web3.eth.getBlockNumber();
         
-        if (block && block.transactions && block.transactions.length > 0) {
-          console.log(`Processing block ${block.number} with ${block.transactions.length} transactions`);
+        // If this is our first run, set the last processed block
+        if (lastProcessedBlock === null) {
+          lastProcessedBlock = currentBlock - 1n;
+          db.run('INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)', 
+            ['last_processed_block', lastProcessedBlock.toString()]);
+        }
+        
+        // Process any new blocks
+        while (lastProcessedBlock < currentBlock) {
+          lastProcessedBlock++;
           
-          let totalBurnedInBlock = 0;
-          
-          // Process regular transactions for gas fees
-          for (const tx of block.transactions) {
-            const burned = await processRegularTransaction(tx, block);
-            totalBurnedInBlock += burned;
-          }
-          
-          // Track system contract events for RVM and callbacks
-          await trackSystemContractEvents(block.number);
-          
-          // Get updated totals
-          db.get(
-            `SELECT COUNT(*) as count, SUM(CAST(amount AS REAL)) as total FROM burns`,
-            (err, row) => {
-              if (!err && row) {
-                // Broadcast update to clients
-                broadcast({
-                  type: 'block_processed',
-                  data: {
-                    blockNumber: block.number,
-                    transactionCount: block.transactions.length,
-                    burnedInBlock: totalBurnedInBlock,
-                    totalBurned: row.total || 0,
-                    totalTransactions: row.count || 0
-                  }
-                });
+          try {
+            // Get full block with transactions
+            const block = await web3.eth.getBlock(lastProcessedBlock, true);
+            
+            if (block && block.transactions && block.transactions.length > 0) {
+              console.log(`Processing block ${block.number} with ${block.transactions.length} transactions`);
+              
+              let totalBurnedInBlock = 0;
+              
+              // Process regular transactions for gas fees
+              for (const tx of block.transactions) {
+                const burned = await processRegularTransaction(tx, block);
+                totalBurnedInBlock += burned;
               }
+              
+              // Track system contract events for RVM and callbacks
+              await trackSystemContractEvents(block.number);
+              
+              // Update last processed block
+              db.run('INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)', 
+                ['last_processed_block', lastProcessedBlock.toString()]);
+              
+              // Get updated totals
+              db.get(
+                `SELECT COUNT(*) as count, SUM(CAST(amount AS REAL)) as total FROM burns`,
+                (err, row) => {
+                  if (!err && row) {
+                    // Broadcast update to clients
+                    broadcast({
+                      type: 'block_processed',
+                      data: {
+                        blockNumber: block.number,
+                        transactionCount: block.transactions.length,
+                        burnedInBlock: totalBurnedInBlock,
+                        totalBurned: row.total || 0,
+                        totalTransactions: row.count || 0
+                      }
+                    });
+                  }
+                }
+              );
             }
-          );
+          } catch (error) {
+            console.error(`Error processing block ${lastProcessedBlock}:`, error);
+            // Don't update lastProcessedBlock so we retry this block
+            lastProcessedBlock--;
+            break;
+          }
         }
       } catch (error) {
-        console.error('Error processing block:', error);
+        console.error('Error in block polling:', error);
       }
-    });
+    }, 3000); // Poll every 3 seconds
     
-    subscription.on('error', (error) => {
-      console.error('Block subscription error:', error);
-      // Retry subscription after 5 seconds
-      setTimeout(subscribeToBlocks, 5000);
-    });
-    
-    console.log('Subscribed to new blocks for comprehensive burn tracking');
-  } catch (error) {
-    console.error('Error subscribing to blocks:', error);
-    // Retry after 5 seconds
-    setTimeout(subscribeToBlocks, 5000);
-  }
+    console.log('Started block polling for comprehensive burn tracking');
+  });
 }
 
 // API Endpoints
@@ -494,7 +515,7 @@ server.listen(PORT, () => {
       });
     });
     
-    subscribeToBlocks();
+    pollBlocks();
     updateTokenPrice();
   });
 });
