@@ -488,7 +488,7 @@
         // Configuration
         const API_URL = window.location.origin;
         const WS_URL = window.location.origin.replace('http', 'ws');
-        const BLOCK_EXPLORER_URL = 'https://explorer.reactive.network/tx/';
+        const BLOCK_EXPLORER_URL = 'https://reactscan.net/tx/';
         
         // Global state
         let ws = null;
@@ -571,14 +571,19 @@
                 
                 // Update UI
                 document.getElementById('totalBurned').textContent = formatNumber(total.totalBurned);
-                document.getElementById('totalBurnedUSD').textContent = `≈ $${formatNumber(total.totalUsdValue)}`;
+                document.getElementById('totalBurnedUSD').textContent = `≈ ${formatNumber(total.totalUsdValue)}`;
                 document.getElementById('dailyBurn').textContent = formatNumber(daily.burned24h);
                 document.getElementById('totalTransactions').textContent = formatNumber(total.totalTransactions);
+                document.getElementById('uniqueAddresses').textContent = formatNumber(total.uniqueAddresses);
                 document.getElementById('burnRate').textContent = formatNumber(rate.burnRate);
                 
                 // Calculate average burn
                 const avgBurn = total.totalTransactions > 0 ? total.totalBurned / total.totalTransactions : 0;
                 document.getElementById('avgBurn').textContent = formatNumber(avgBurn);
+                
+                // Update address info
+                document.getElementById('addressChange').innerHTML = 
+                    `<span style="font-size: 0.75rem; color: rgba(255,255,255,0.5);">${daily.uniqueAddresses24h || 0} in 24h</span>`;
                 
                 // Update transaction changes
                 document.getElementById('txChange').innerHTML = `<span style="color: var(--success);">↑</span> ${daily.transactions24h} today`;
@@ -603,6 +608,7 @@
                         'gas_fee_contract': '<span style="color: #FFE66D">Contract Call</span>',
                         'gas_fee_with_data': '<span style="color: #FF6B6B">Data Transaction</span>',
                         'gas_fee_self': '<span style="color: #764ba2">Self Transaction</span>',
+                        'system_contract_payment': '<span style="color: #FFA502">💰 System Payment</span>',
                         'system_contract_call': '<span style="color: #FF6B6B">⚡ System Contract</span>',
                         'special_contract_call': '<span style="color: #FFA502">🔗 Special Contract</span>',
                         'cross_chain_activity': '<span style="color: #00ff00">🌐 Cross-Chain Event</span>',
