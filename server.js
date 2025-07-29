@@ -5,6 +5,7 @@ const { Web3 } = require('web3');
 const sqlite3 = require('sqlite3').verbose();
 const WebSocket = require('ws');
 const path = require('path');
+const fs = require('fs');
 require('dotenv').config();
 
 const app = express();
@@ -18,10 +19,22 @@ app.use(express.static('public'));
 // Initialize Web3
 const web3 = new Web3(process.env.RPC_URL || 'https://rpc.reactive.network');
 
-// Initialize SQLite Database - use in-memory for free tier
-// Note: Data will be lost on restart. Upgrade to paid tier for persistence.
-const db = new sqlite3.Database(':memory:');
-console.log('Using in-memory database (data will reset on restart)');
+// Initialize SQLite Database
+const fs = require('fs');
+const dbPath = process.env.NODE_ENV === 'production' 
+  ? '/app/data/burns.db'  // Persistent disk on Render
+  : './burns.db';         // Local development
+
+// Ensure data directory exists
+if (process.env.NODE_ENV === 'production') {
+  const dataDir = path.dirname(dbPath);
+  if (!fs.existsSync(dataDir)) {
+    fs.mkdirSync(dataDir, { recursive: true });
+  }
+}
+
+const db = new sqlite3.Database(dbPath);
+console.log(`Using database at: ${dbPath}`);
 
 // Important Reactive Network addresses
 const REACT_TOKEN_ADDRESS = process.env.REACT_TOKEN_ADDRESS || '0x0000000000000000000000000000000000fffFfF';
