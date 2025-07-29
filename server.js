@@ -23,11 +23,12 @@ const web3 = new Web3(process.env.RPC_URL || 'https://rpc.reactive.network');
 const db = new sqlite3.Database(':memory:');
 console.log('Using in-memory database (data will reset on restart)');
 
-// REACT Token Contract Configuration
+// Important Reactive Network addresses
 const REACT_TOKEN_ADDRESS = process.env.REACT_TOKEN_ADDRESS || '0x0000000000000000000000000000000000fffFfF';
-const BURN_ADDRESS = '0x0000000000000000000000000000000000000000';
+const SYSTEM_CONTRACT_ADDRESS = '0x0000000000000000000000000000000000fffFfF'; // System contract & callback proxy
+const CALLBACK_PROXY_ADDRESS = '0x0000000000000000000000000000000000fffFfF'; // Same as system contract
 
-// ABI for Transfer event (standard ERC20)
+// ABI for tracking various events
 const TRANSFER_EVENT_ABI = {
   anonymous: false,
   inputs: [
@@ -36,6 +37,17 @@ const TRANSFER_EVENT_ABI = {
     { indexed: false, name: 'value', type: 'uint256' }
   ],
   name: 'Transfer',
+  type: 'event'
+};
+
+// ABI for debt settlement events (coverDebt calls)
+const DEBT_SETTLED_EVENT_ABI = {
+  anonymous: false,
+  inputs: [
+    { indexed: true, name: 'contract', type: 'address' },
+    { indexed: false, name: 'amount', type: 'uint256' }
+  ],
+  name: 'DebtSettled',
   type: 'event'
 };
 
@@ -82,7 +94,7 @@ function broadcast(data) {
 // Initialize tables with proper callbacks
 function initializeDatabase(callback) {
   db.serialize(() => {
-    // Create burns table
+    // Create burns table - now with burn_type field
     db.run(`
       CREATE TABLE IF NOT EXISTS burns (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -92,6 +104,8 @@ function initializeDatabase(callback) {
         from_address TEXT NOT NULL,
         timestamp INTEGER NOT NULL,
         usd_value REAL,
+        burn_type TEXT NOT NULL,
+        gas_used INTEGER,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       )
     `);
@@ -106,59 +120,104 @@ function initializeDatabase(callback) {
 
     // Create indexes
     db.run('CREATE INDEX IF NOT EXISTS idx_timestamp ON burns(timestamp)');
-    db.run('CREATE INDEX IF NOT EXISTS idx_block ON burns(block_number)', callback);
+    db.run('CREATE INDEX IF NOT EXISTS idx_block ON burns(block_number)');
+    db.run('CREATE INDEX IF NOT EXISTS idx_burn_type ON burns(burn_type)', callback);
   });
 }
 
-// Function to process burn events
-async function processBurnEvent(event) {
+// Track regular transaction gas fees
+async function processRegularTransaction(tx, block) {
   try {
-    const { transactionHash, blockNumber, returnValues } = event;
-    const { from, value } = returnValues;
+    const receipt = await web3.eth.getTransactionReceipt(tx.hash);
     
-    // Get block timestamp
-    const block = await web3.eth.getBlock(blockNumber);
-    const timestamp = block.timestamp;
-    
-    // Convert value from Wei to token units
-    // Check if REACT uses different decimals - adjust if needed
-    const decimals = 18; // Adjust this if REACT uses different decimals
-    const amount = parseFloat(web3.utils.fromWei(value, 'ether'));
-    const usdValue = amount * currentPrice;
-    
-    console.log(`Burn detected: ${amount} REACT from ${from} in tx ${transactionHash}`);
-    
-    // Store in database
-    db.run(
-      `INSERT OR IGNORE INTO burns (tx_hash, block_number, amount, from_address, timestamp, usd_value) 
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [transactionHash, blockNumber, amount.toFixed(18), from, timestamp, usdValue],
-      (err) => {
-        if (err) {
-          console.error('Error inserting burn:', err);
-          return;
-        }
-        
-        // Broadcast to WebSocket clients
-        broadcast({
-          type: 'new_burn',
-          data: {
-            txHash: transactionHash,
-            block: blockNumber,
-            amount: amount,
-            from: from,
-            timestamp: timestamp * 1000,
-            usdValue: usdValue
+    if (receipt) {
+      // Calculate burned REACT: gasUsed * gasPrice
+      const gasUsed = BigInt(receipt.gasUsed);
+      const gasPrice = BigInt(tx.gasPrice || '0');
+      const burnedWei = gasUsed * gasPrice;
+      
+      // Convert from Wei to REACT (18 decimals)
+      const burnedReact = parseFloat(web3.utils.fromWei(burnedWei.toString(), 'ether'));
+      const usdValue = burnedReact * currentPrice;
+      
+      // Store in database
+      db.run(
+        `INSERT OR IGNORE INTO burns (tx_hash, block_number, amount, from_address, timestamp, usd_value, burn_type, gas_used) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [tx.hash, block.number, burnedReact.toFixed(18), tx.from, block.timestamp, usdValue, 'gas_fee', receipt.gasUsed],
+        (err) => {
+          if (err && !err.message.includes('UNIQUE constraint failed')) {
+            console.error('Error inserting gas fee burn:', err);
+            return;
           }
-        });
-      }
-    );
+        }
+      );
+      
+      return burnedReact;
+    }
+    return 0;
   } catch (error) {
-    console.error('Error processing burn event:', error);
+    console.error('Error processing transaction:', error);
+    return 0;
   }
 }
 
-// Subscribe to new blocks and track gas fees
+// Track RVM transactions and debt settlements
+async function trackSystemContractEvents(fromBlock) {
+  try {
+    // Monitor transfers to system contract (RVM payments and deposits)
+    const transferEvents = await web3.eth.getPastLogs({
+      fromBlock: fromBlock,
+      toBlock: 'latest',
+      address: REACT_TOKEN_ADDRESS,
+      topics: [
+        web3.utils.sha3('Transfer(address,address,uint256)'),
+        null,
+        web3.utils.padLeft(SYSTEM_CONTRACT_ADDRESS, 64)
+      ]
+    });
+
+    for (const event of transferEvents) {
+      try {
+        // Decode the transfer event
+        const decodedEvent = web3.eth.abi.decodeLog(
+          TRANSFER_EVENT_ABI.inputs,
+          event.data,
+          event.topics.slice(1)
+        );
+        
+        const amount = parseFloat(web3.utils.fromWei(decodedEvent.value, 'ether'));
+        const usdValue = amount * currentPrice;
+        
+        // Get block info for timestamp
+        const block = await web3.eth.getBlock(event.blockNumber);
+        
+        // Determine burn type based on method called
+        const tx = await web3.eth.getTransaction(event.transactionHash);
+        let burnType = 'rvm_payment';
+        
+        if (tx.input && tx.input.includes('depositTo')) {
+          burnType = 'rvm_deposit';
+        } else if (tx.input && tx.input.includes('coverDebt')) {
+          burnType = 'debt_settlement';
+        }
+        
+        db.run(
+          `INSERT OR IGNORE INTO burns (tx_hash, block_number, amount, from_address, timestamp, usd_value, burn_type, gas_used) 
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [event.transactionHash, event.blockNumber, amount.toFixed(18), decodedEvent.from, block.timestamp, usdValue, burnType, 0]
+        );
+        
+      } catch (error) {
+        console.error('Error processing system contract event:', error);
+      }
+    }
+  } catch (error) {
+    console.error('Error tracking system contract events:', error);
+  }
+}
+
+// Subscribe to new blocks and track all types of burns
 async function subscribeToBlocks() {
   try {
     const subscription = await web3.eth.subscribe('newBlockHeaders');
@@ -171,49 +230,36 @@ async function subscribeToBlocks() {
         if (block && block.transactions && block.transactions.length > 0) {
           console.log(`Processing block ${block.number} with ${block.transactions.length} transactions`);
           
+          let totalBurnedInBlock = 0;
+          
+          // Process regular transactions for gas fees
           for (const tx of block.transactions) {
-            // Get transaction receipt for actual gas used
-            const receipt = await web3.eth.getTransactionReceipt(tx.hash);
-            
-            if (receipt) {
-              // Calculate burned REACT: gasUsed * gasPrice
-              const gasUsed = BigInt(receipt.gasUsed);
-              const gasPrice = BigInt(tx.gasPrice || '0');
-              const burnedWei = gasUsed * gasPrice;
-              
-              // Convert from Wei to REACT (18 decimals)
-              const burnedReact = parseFloat(web3.utils.fromWei(burnedWei.toString(), 'ether'));
-              const usdValue = burnedReact * currentPrice;
-              
-              console.log(`Transaction ${tx.hash}: burned ${burnedReact} REACT`);
-              
-              // Store in database
-              db.run(
-                `INSERT OR IGNORE INTO burns (tx_hash, block_number, amount, from_address, timestamp, usd_value) 
-                 VALUES (?, ?, ?, ?, ?, ?)`,
-                [tx.hash, block.number, burnedReact.toFixed(18), tx.from, block.timestamp, usdValue],
-                (err) => {
-                  if (err && !err.message.includes('UNIQUE constraint failed')) {
-                    console.error('Error inserting burn:', err);
-                    return;
-                  }
-                  
-                  // Broadcast to WebSocket clients
-                  broadcast({
-                    type: 'new_burn',
-                    data: {
-                      txHash: tx.hash,
-                      block: block.number,
-                      amount: burnedReact,
-                      from: tx.from,
-                      timestamp: block.timestamp * 1000,
-                      usdValue: usdValue
-                    }
-                  });
-                }
-              );
-            }
+            const burned = await processRegularTransaction(tx, block);
+            totalBurnedInBlock += burned;
           }
+          
+          // Track system contract events for RVM and callbacks
+          await trackSystemContractEvents(block.number);
+          
+          // Get updated totals
+          db.get(
+            `SELECT COUNT(*) as count, SUM(CAST(amount AS REAL)) as total FROM burns`,
+            (err, row) => {
+              if (!err && row) {
+                // Broadcast update to clients
+                broadcast({
+                  type: 'block_processed',
+                  data: {
+                    blockNumber: block.number,
+                    transactionCount: block.transactions.length,
+                    burnedInBlock: totalBurnedInBlock,
+                    totalBurned: row.total || 0,
+                    totalTransactions: row.count || 0
+                  }
+                });
+              }
+            }
+          );
         }
       } catch (error) {
         console.error('Error processing block:', error);
@@ -226,7 +272,7 @@ async function subscribeToBlocks() {
       setTimeout(subscribeToBlocks, 5000);
     });
     
-    console.log('Subscribed to new blocks for fee tracking');
+    console.log('Subscribed to new blocks for comprehensive burn tracking');
   } catch (error) {
     console.error('Error subscribing to blocks:', error);
     // Retry after 5 seconds
@@ -255,24 +301,40 @@ app.get('/api/deployment-info', (req, res) => {
   });
 });
 
-// Get total burns
+// Get total burns with breakdown by type
 app.get('/api/stats/total', (req, res) => {
-  db.get(
+  db.all(
     `SELECT 
-      COUNT(*) as total_transactions,
-      SUM(CAST(amount AS REAL)) as total_burned,
-      SUM(usd_value) as total_usd_value
-     FROM burns`,
-    (err, row) => {
+      burn_type,
+      COUNT(*) as count,
+      SUM(CAST(amount AS REAL)) as total
+     FROM burns
+     GROUP BY burn_type`,
+    (err, typeBreakdown) => {
       if (err) {
         return res.status(500).json({ error: err.message });
       }
-      res.json({
-        totalTransactions: row.total_transactions || 0,
-        totalBurned: row.total_burned || 0,
-        totalUsdValue: row.total_usd_value || 0,
-        currentPrice: currentPrice
-      });
+      
+      db.get(
+        `SELECT 
+          COUNT(*) as total_transactions,
+          SUM(CAST(amount AS REAL)) as total_burned,
+          SUM(usd_value) as total_usd_value
+         FROM burns`,
+        (err, totals) => {
+          if (err) {
+            return res.status(500).json({ error: err.message });
+          }
+          
+          res.json({
+            totalTransactions: totals.total_transactions || 0,
+            totalBurned: totals.total_burned || 0,
+            totalUsdValue: totals.total_usd_value || 0,
+            currentPrice: currentPrice,
+            breakdown: typeBreakdown || []
+          });
+        }
+      );
     }
   );
 });
@@ -348,10 +410,11 @@ app.get('/api/chart/:period', (req, res) => {
   db.all(
     `SELECT 
       strftime('${groupBy}', datetime(timestamp, 'unixepoch')) as period,
-      SUM(CAST(amount AS REAL)) as total_burned
+      SUM(CAST(amount AS REAL)) as total_burned,
+      burn_type
      FROM burns
      WHERE timestamp > ?
-     GROUP BY period
+     GROUP BY period, burn_type
      ORDER BY period`,
     [startTime],
     (err, rows) => {
@@ -363,12 +426,12 @@ app.get('/api/chart/:period', (req, res) => {
   );
 });
 
-// Get recent transactions
+// Get recent transactions with type info
 app.get('/api/transactions/recent', (req, res) => {
   const limit = parseInt(req.query.limit) || 10;
   
   db.all(
-    `SELECT tx_hash, block_number, amount, from_address, timestamp
+    `SELECT tx_hash, block_number, amount, from_address, timestamp, burn_type, gas_used
      FROM burns
      ORDER BY timestamp DESC
      LIMIT ?`,
@@ -382,32 +445,24 @@ app.get('/api/transactions/recent', (req, res) => {
   );
 });
 
-// Sync historical data (optional endpoint for initial data load)
-app.post('/api/sync/historical', async (req, res) => {
-  const { fromBlock, toBlock } = req.body;
-  
-  try {
-    const contract = new web3.eth.Contract([TRANSFER_EVENT_ABI], REACT_TOKEN_ADDRESS);
-    
-    const events = await contract.getPastEvents('Transfer', {
-      filter: { to: BURN_ADDRESS },
-      fromBlock: fromBlock || 0,
-      toBlock: toBlock || 'latest'
-    });
-    
-    let processed = 0;
-    for (const event of events) {
-      await processBurnEvent(event);
-      processed++;
+// Get burn type statistics
+app.get('/api/stats/burn-types', (req, res) => {
+  db.all(
+    `SELECT 
+      burn_type,
+      COUNT(*) as count,
+      SUM(CAST(amount AS REAL)) as total,
+      AVG(CAST(amount AS REAL)) as average
+     FROM burns
+     GROUP BY burn_type
+     ORDER BY total DESC`,
+    (err, rows) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      res.json(rows);
     }
-    
-    res.json({ 
-      success: true, 
-      message: `Processed ${processed} historical burn events` 
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+  );
 });
 
 // Health check
@@ -426,7 +481,20 @@ server.listen(PORT, () => {
   // Initialize database first, then start services
   initializeDatabase(() => {
     console.log('Database initialized');
-    subscribeToBurnEvents();
+    
+    // Set deployment block if first time
+    web3.eth.getBlockNumber().then(currentBlock => {
+      db.get('SELECT value FROM metadata WHERE key = ?', ['deployment_block'], (err, row) => {
+        if (!row) {
+          const deploymentTime = new Date().toISOString();
+          db.run('INSERT INTO metadata (key, value) VALUES (?, ?)', ['deployment_block', currentBlock.toString()]);
+          db.run('INSERT INTO metadata (key, value) VALUES (?, ?)', ['deployment_time', deploymentTime]);
+          console.log(`First deployment! Starting tracking from block ${currentBlock}`);
+        }
+      });
+    });
+    
+    subscribeToBlocks();
     updateTokenPrice();
   });
 });
