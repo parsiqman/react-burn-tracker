@@ -220,6 +220,36 @@
             border-color: rgba(255, 107, 107, 0.3);
         }
 
+        .stat-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 1rem;
+        }
+
+        .stat-label {
+            font-size: 0.875rem;
+            color: rgba(255, 255, 255, 0.7);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .stat-icon {
+            font-size: 1.5rem;
+            opacity: 0.5;
+        }
+
+        .stat-value {
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+
+        .stat-change {
+            font-size: 0.875rem;
+            color: rgba(255, 255, 255, 0.5);
+        }
+
         /* Chart Section */
         .chart-section {
             background: rgba(26, 30, 58, 0.4);
@@ -340,15 +370,6 @@
                 grid-template-columns: 1fr;
             }
         }
-
-            .container {
-                padding: 1rem;
-            }
-
-            .stats-grid {
-                grid-template-columns: 1fr;
-            }
-        }
     </style>
 </head>
 <body>
@@ -421,6 +442,15 @@
                 </div>
                 <div class="stat-value" id="totalTransactions"><div class="skeleton"></div></div>
                 <div class="stat-change" id="txChange"></div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-header">
+                    <div class="stat-label">Unique Addresses</div>
+                    <div class="stat-icon">👥</div>
+                </div>
+                <div class="stat-value" id="uniqueAddresses"><div class="skeleton"></div></div>
+                <div class="stat-change" id="addressChange"></div>
             </div>
 
             <div class="stat-card">
@@ -581,9 +611,9 @@
                 const avgBurn = total.totalTransactions > 0 ? total.totalBurned / total.totalTransactions : 0;
                 document.getElementById('avgBurn').textContent = formatNumber(avgBurn);
                 
-                // Update address info
+                // Update address info - show how many new addresses in 24h
                 document.getElementById('addressChange').innerHTML = 
-                    `<span style="font-size: 0.75rem; color: rgba(255,255,255,0.5);">${daily.uniqueAddresses24h || 0} in 24h</span>`;
+                    `<span style="color: var(--success);">+${daily.uniqueAddresses24h || 0}</span> in last 24h`;
                 
                 // Update transaction changes
                 document.getElementById('txChange').innerHTML = `<span style="color: var(--success);">↑</span> ${daily.transactions24h} today`;
