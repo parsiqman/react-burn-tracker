@@ -1,4 +1,8 @@
-// server.js - Production Backend for REACT Burn Tracker
+// Special handling for the automated address we're seeing
+      const AUTOMATION_ADDRESS = '0xaa24633108fd1d87371c55e6d7f4fa00cdeb26';
+      
+      if (fromAddress === AUTOMATION_ADDRESS.toLowerCase() && toAddress === SYSTEM_CONTRACT_ADDRESS.toLowerCase()) {
+        // This is// server.js - Production Backend for REACT Burn Tracker
 const express = require('express');
 const cors = require('cors');
 const { Web3 } = require('web3');
@@ -209,6 +213,7 @@ async function processRegularTransaction(tx, block) {
         '0x23b872dd': 'transferFrom',
         // Reactive Network specific methods
         '0xb90dc8ff': 'reactive_callback', // We saw this in transactions
+        '0x90dccff': 'reactive_automation', // The method we're seeing repeatedly
         '0x150b7a02': 'onERC721Received',
         '0xf23a6e61': 'onERC1155Received',
         // Hyperlane methods
@@ -224,15 +229,6 @@ async function processRegularTransaction(tx, block) {
       // Analyze transaction for cross-chain activity
       let isLikelyCrossChain = false;
       let crossChainInfo = '';
-      
-      // Check if it's interacting with system contract (callbacks on Reactive)
-      const toAddress = tx.to ? tx.to.toLowerCase() : '';
-      const fromAddress = tx.from ? tx.from.toLowerCase() : '';
-      
-      if (toAddress === SYSTEM_CONTRACT_ADDRESS.toLowerCase()) {
-        isLikelyCrossChain = true;
-        crossChainInfo = '[Reactive Callback]';
-      }
       
       // Check if FROM address is a known callback proxy (cross-chain callback coming IN)
       if (ALL_CALLBACK_PROXIES.has(fromAddress)) {
@@ -253,10 +249,12 @@ async function processRegularTransaction(tx, block) {
         crossChainInfo = `[Callback from ${chainName}]`;
       }
       
-      // Check if TO address is a callback proxy (unlikely on Reactive, but possible)
-      if (ALL_CALLBACK_PROXIES.has(toAddress)) {
-        isLikelyCrossChain = true;
-        crossChainInfo += '[To Callback Proxy]';
+      // Transactions TO the system contract on Reactive are NOT cross-chain
+      // They're just paying for reactive services
+      if (toAddress === SYSTEM_CONTRACT_ADDRESS.toLowerCase() && !isLikelyCrossChain) {
+        // This is a regular system contract interaction, not cross-chain
+        transactionType = 'system_contract_payment';
+        crossChainInfo = '[System Contract Payment]';
       }
       
       // Check if it's a Hyperlane mailbox
@@ -301,11 +299,11 @@ async function processRegularTransaction(tx, block) {
           txInfo = '(simple transfer)';
         }
       } else {
-        // Contract interaction - likely cross-chain or RVM
+        // Contract interaction - likely RVM or system payment
         if (isLikelyCrossChain) {
           transactionType = 'cross_chain_contract';
         } else if (toAddress === SYSTEM_CONTRACT_ADDRESS.toLowerCase()) {
-          transactionType = 'system_contract_call';
+          transactionType = 'system_contract_payment';
         } else if (toAddress.startsWith('0x00000000')) {
           transactionType = 'special_contract_call';
         } else {
@@ -535,7 +533,7 @@ app.get('/api/deployment-info', (req, res) => {
   });
 });
 
-// Get total burns with breakdown by type
+// Get total burns with breakdown by type and unique addresses
 app.get('/api/stats/total', (req, res) => {
   db.all(
     `SELECT 
@@ -553,7 +551,8 @@ app.get('/api/stats/total', (req, res) => {
         `SELECT 
           COUNT(*) as total_transactions,
           SUM(CAST(amount AS REAL)) as total_burned,
-          SUM(usd_value) as total_usd_value
+          SUM(usd_value) as total_usd_value,
+          COUNT(DISTINCT from_address) as unique_addresses
          FROM burns`,
         (err, totals) => {
           if (err) {
@@ -564,6 +563,7 @@ app.get('/api/stats/total', (req, res) => {
             totalTransactions: totals.total_transactions || 0,
             totalBurned: totals.total_burned || 0,
             totalUsdValue: totals.total_usd_value || 0,
+            uniqueAddresses: totals.unique_addresses || 0,
             currentPrice: currentPrice,
             breakdown: typeBreakdown || []
           });
@@ -573,14 +573,15 @@ app.get('/api/stats/total', (req, res) => {
   );
 });
 
-// Get 24h stats
+// Get 24h stats with unique addresses
 app.get('/api/stats/24h', (req, res) => {
   const dayAgo = Math.floor(Date.now() / 1000) - (24 * 60 * 60);
   
   db.get(
     `SELECT 
       COUNT(*) as transactions_24h,
-      SUM(CAST(amount AS REAL)) as burned_24h
+      SUM(CAST(amount AS REAL)) as burned_24h,
+      COUNT(DISTINCT from_address) as unique_addresses_24h
      FROM burns
      WHERE timestamp > ?`,
     [dayAgo],
@@ -590,7 +591,8 @@ app.get('/api/stats/24h', (req, res) => {
       }
       res.json({
         transactions24h: row.transactions_24h || 0,
-        burned24h: row.burned_24h || 0
+        burned24h: row.burned_24h || 0,
+        uniqueAddresses24h: row.unique_addresses_24h || 0
       });
     }
   );
