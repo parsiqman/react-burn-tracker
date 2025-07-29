@@ -222,6 +222,10 @@ async function processRegularTransaction(tx, block) {
         '0x': 'empty_data'
       };
       
+      // Initialize transaction type and info variables
+      let transactionType = 'gas_fee';
+      let txInfo = '';
+      
       // Analyze transaction for cross-chain activity
       let isLikelyCrossChain = false;
       let crossChainInfo = '';
@@ -277,10 +281,6 @@ async function processRegularTransaction(tx, block) {
           console.log(`Unknown method: ${methodSig} in tx ${tx.hash} to ${toAddress}`);
         }
       }
-      
-      // Analyze transaction to determine its likely type
-      let transactionType = 'gas_fee';
-      let txInfo = '';
       
       // Special handling for the automated address we're seeing
       const AUTOMATION_ADDRESS = '0xaa24633108fd1d87371c55e6d7f4fa00cdeb26';
