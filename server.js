@@ -278,6 +278,10 @@ async function processRegularTransaction(tx, block) {
         }
       }
       
+      // Analyze transaction to determine its likely type
+      let transactionType = 'gas_fee';
+      let txInfo = '';
+      
       // Special handling for the automated address we're seeing
       const AUTOMATION_ADDRESS = '0xaa24633108fd1d87371c55e6d7f4fa00cdeb26';
       
@@ -286,10 +290,6 @@ async function processRegularTransaction(tx, block) {
         transactionType = 'system_contract_payment';
         crossChainInfo = '[RSC Automation]';
       }
-      
-      // Analyze transaction to determine its likely type
-      let transactionType = 'gas_fee';
-      let txInfo = '';
       
       // Determine transaction type based on analysis
       if (gasUsed === 21000n) {
