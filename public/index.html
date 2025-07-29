@@ -613,7 +613,7 @@
                                 </a>
                             </td>
                             <td>${tx.block_number.toLocaleString()}</td>
-                            <td>${formatNumber(parseFloat(tx.amount))} REACT</td>
+                            <td>${formatNumber(parseFloat(tx.amount))} REACT${parseFloat(tx.amount) === 0 ? ' <span style="color: #888; font-size: 0.8em">(zero fee)</span>' : ''}</td>
                             <td>${typeDisplay[tx.burn_type] || tx.burn_type}</td>
                             <td>${formatTime(tx.timestamp)}</td>
                         </tr>
