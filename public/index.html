@@ -470,6 +470,15 @@
                 <div class="stat-value" id="burnRate"><div class="skeleton"></div></div>
                 <div class="stat-change">REACT/hour</div>
             </div>
+
+            <div class="stat-card">
+                <div class="stat-header">
+                    <div class="stat-label">Power Users</div>
+                    <div class="stat-icon">🔥</div>
+                </div>
+                <div class="stat-value" id="activeAddresses"><div class="skeleton"></div></div>
+                <div class="stat-change">100+ transactions</div>
+            </div>
         </div>
 
         <!-- Chart Section - Hidden for now -->
@@ -586,6 +595,25 @@
             return date.toLocaleDateString();
         }
         
+        // Fetch active addresses
+        async function fetchActiveAddresses() {
+            try {
+                const res = await fetch(`${API_URL}/api/stats/active-addresses?threshold=100`);
+                const data = await res.json();
+                
+                // Update UI
+                document.getElementById('activeAddresses').textContent = formatNumber(data.activeAddresses);
+                
+                // Optional: Log top addresses for debugging
+                if (data.topActiveAddresses && data.topActiveAddresses.length > 0) {
+                    console.log('Top active addresses:', data.topActiveAddresses);
+                }
+            } catch (error) {
+                console.error('Error fetching active addresses:', error);
+                document.getElementById('activeAddresses').textContent = '0';
+            }
+        }
+        
         // API calls
         async function fetchStats() {
             try {
@@ -617,6 +645,9 @@
                 
                 // Update transaction changes
                 document.getElementById('txChange').innerHTML = `<span style="color: var(--success);">↑</span> ${daily.transactions24h} today`;
+                
+                // Fetch active addresses
+                await fetchActiveAddresses();
                 
             } catch (error) {
                 console.error('Error fetching stats:', error);
@@ -892,6 +923,7 @@
                 setInterval(() => {
                     fetchStats();
                     fetchTransactions();
+                    fetchActiveAddresses();
                 }, 30000);
                 
             } catch (error) {
