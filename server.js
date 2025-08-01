@@ -849,7 +849,7 @@ app.post('/api/admin/sync-historical', (req, res) => {
   syncStartTime = Date.now();
   syncLogs = [];
 
-  syncProcess = spawn('node', ['scripts/sync-historical-direct.js'], {
+  syncProcess = spawn('node', ['scripts/sync-historical-force.js'], {
     cwd: process.cwd(),
     env: process.env
   });
