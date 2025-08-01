@@ -8,6 +8,13 @@ const path = require('path');
 const fs = require('fs');
 require('dotenv').config();
 
+// Check if we should run historical sync
+if (process.env.RUN_HISTORICAL_SYNC === 'true') {
+  console.log('Starting historical sync on startup...');
+  require('./scripts/sync-historical-direct.js');
+  return; // Exit after sync
+}
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
