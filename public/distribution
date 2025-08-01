@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Transaction Distribution - REACT Burn Tracker</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary: #FF6B6B;
+            --secondary: #4ECDC4;
+            --dark: #0A0E27;
+            --darker: #060817;
+            --light: #F7F9FC;
+            --success: #51CF66;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--darker);
+            color: var(--light);
+            min-height: 100vh;
+        }
+
+        /* Header */
+        .header {
+            background: rgba(10, 14, 39, 0.95);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header-content {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 1.5rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .logo-icon {
+            width: 48px;
+            height: 48px;
+            background: linear-gradient(135deg, #FF6B6B 0%, #FFA502 100%);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 1.5rem;
+        }
+
+        .logo-text h1 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #FF6B6B 0%, #FFA502 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .nav-link {
+            color: var(--secondary);
+            text-decoration: none;
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+        }
+
+        .nav-link:hover {
+            background: rgba(78, 205, 196, 0.1);
+        }
+
+        /* Main Container */
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        /* Loading State */
+        .loading {
+            text-align: center;
+            padding: 4rem;
+        }
+
+        .loading-spinner {
+            width: 60px;
+            height: 60px;
+            border: 4px solid rgba(255, 255, 255, 0.1);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 2rem;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .stat-card {
+            background: rgba(78, 205, 196, 0.1);
+            border: 1px solid rgba(78, 205, 196, 0.3);
+            padding: 1.5rem;
+            border-radius: 12px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: var(--secondary);
+            margin-bottom: 0.5rem;
+        }
+
+        .stat-label {
+            font-size: 0.875rem;
+            color: rgba(255, 255, 255, 0.7);
+        }
+
+        /* Main Chart */
+        .main-chart {
+            background: rgba(26, 30, 58, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+        }
+
+        .chart-title {
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: var(--secondary);
+            text-align: center;
+        }
+
+        #lorenzChart {
+            max-height: 500px;
+        }
+
+        /* Key Insights */
+        .key-insights {
+            background: rgba(255, 107, 107, 0.1);
+            border-left: 4px solid var(--primary);
+            padding: 1.5rem;
+            border-radius: 8px;
+            margin-top: 2rem;
+        }
+
+        .key-insights h3 {
+            color: var(--primary);
+            margin-bottom: 1rem;
+        }
+
+        .insight-item {
+            margin-bottom: 0.75rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .insight-item::before {
+            content: "→";
+            color: var(--primary);
+            font-weight: bold;
+        }
+
+        /* Additional Info */
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1.5rem;
+            margin-top: 2rem;
+        }
+
+        .info-card {
+            background: rgba(26, 30, 58, 0.4);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 1.5rem;
+        }
+
+        .info-card h3 {
+            color: var(--secondary);
+            margin-bottom: 1rem;
+        }
+
+        .info-card p {
+            color: rgba(255, 255, 255, 0.7);
+            line-height: 1.6;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .header-content {
+                flex-direction: column;
+                gap: 1rem;
+            }
+
+            .container {
+                padding: 1rem;
+            }
+
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="header-content">
+            <div class="logo">
+                <div class="logo-icon">🔥</div>
+                <div class="logo-text">
+                    <h1>REACT Burn Tracker</h1>
+                    <p>Transaction Distribution</p>
+                </div>
+            </div>
+            <nav>
+                <a href="/" class="nav-link">← Back to Dashboard</a>
+            </nav>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <div class="container">
+        <!-- Loading State -->
+        <div id="loadingState" class="loading">
+            <div class="loading-spinner"></div>
+            <p>Analyzing transaction distribution...</p>
+        </div>
+
+        <!-- Main Content (hidden initially) -->
+        <div id="mainContent" style="display: none;">
+            <!-- Stats Grid -->
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-value" id="giniValue">-</div>
+                    <div class="stat-label">Gini Coefficient</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="top10Value">-</div>
+                    <div class="stat-label">Top 10% Control</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="bottom50Value">-</div>
+                    <div class="stat-label">Bottom 50% Control</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="totalAddresses">-</div>
+                    <div class="stat-label">Total Addresses</div>
+                </div>
+            </div>
+
+            <!-- Main Chart -->
+            <div class="main-chart">
+                <div class="chart-title">Transaction Distribution Curve</div>
+                <canvas id="lorenzChart"></canvas>
+                
+                <div class="key-insights">
+                    <h3>Key Distribution Insights</h3>
+                    <div id="insights"></div>
+                </div>
+            </div>
+
+            <!-- Additional Information -->
+            <div class="info-grid">
+                <div class="info-card">
+                    <h3>Understanding the Gini Coefficient</h3>
+                    <p>
+                        The Gini coefficient measures inequality in the distribution. 
+                        A value of 0 represents perfect equality (all addresses have the same number of transactions), 
+                        while 1 represents maximum inequality (one address has all transactions).
+                    </p>
+                </div>
+                <div class="info-card">
+                    <h3>Reading the Lorenz Curve</h3>
+                    <p>
+                        The diagonal line represents perfect equality. The further the red curve deviates from this line, 
+                        the more concentrated the transaction activity. The area between the curves determines the Gini coefficient.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = window.location.origin;
+        let lorenzChart = null;
+
+        // Calculate Gini coefficient
+        function calculateGiniCoefficient(values) {
+            const sorted = [...values].sort((a, b) => a - b);
+            const n = sorted.length;
+            const sum = sorted.reduce((a, b) => a + b, 0);
+            
+            let giniSum = 0;
+            for (let i = 0; i < n; i++) {
+                giniSum += (2 * (i + 1) - n - 1) * sorted[i];
+            }
+            
+            return (giniSum / (n * sum));
+        }
+
+        // Fetch and display distribution data
+        async function loadDistributionData() {
+            try {
+                const response = await fetch(`${API_URL}/api/analysis/distribution`);
+                const data = await response.json();
+                
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+
+                // Extract transaction counts and sort
+                const transactions = Object.values(data.distribution).sort((a, b) => a - b);
+                const totalTx = data.summary.totalTransactions;
+                const totalAddresses = transactions.length;
+                
+                // Calculate cumulative percentages for Lorenz curve
+                const lorenzData = [{x: 0, y: 0}];
+                let cumTx = 0;
+                
+                transactions.forEach((tx, i) => {
+                    cumTx += tx;
+                    lorenzData.push({
+                        x: ((i + 1) / totalAddresses) * 100,
+                        y: (cumTx / totalTx) * 100
+                    });
+                });
+                
+                // Update stats
+                document.getElementById('giniValue').textContent = data.summary.gini.toFixed(3);
+                document.getElementById('top10Value').textContent = data.summary.top10Percent.toFixed(1) + '%';
+                document.getElementById('bottom50Value').textContent = data.summary.bottom50Percent.toFixed(1) + '%';
+                document.getElementById('totalAddresses').textContent = totalAddresses.toLocaleString();
+                
+                // Create chart
+                const ctx = document.getElementById('lorenzChart').getContext('2d');
+                lorenzChart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        datasets: [{
+                            label: 'Actual Distribution',
+                            data: lorenzData,
+                            borderColor: '#FF6B6B',
+                            backgroundColor: 'rgba(255, 107, 107, 0.1)',
+                            borderWidth: 3,
+                            fill: '+1',
+                            tension: 0,
+                            pointRadius: 0,
+                            pointHoverRadius: 5
+                        }, {
+                            label: 'Perfect Equality',
+                            data: [{x: 0, y: 0}, {x: 100, y: 100}],
+                            borderColor: '#4ECDC4',
+                            borderWidth: 2,
+                            borderDash: [10, 5],
+                            fill: false,
+                            pointRadius: 0
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        interaction: {
+                            intersect: false,
+                            mode: 'index'
+                        },
+                        plugins: {
+                            legend: {
+                                display: true,
+                                position: 'top',
+                                labels: { 
+                                    color: '#F7F9FC',
+                                    padding: 20
+                                }
+                            },
+                            tooltip: {
+                                backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                                titleColor: '#fff',
+                                bodyColor: '#fff',
+                                borderColor: '#FF6B6B',
+                                borderWidth: 1,
+                                padding: 12,
+                                displayColors: false,
+                                callbacks: {
+                                    label: function(context) {
+                                        if (context.dataset.label === 'Perfect Equality') return null;
+                                        return `${context.parsed.x.toFixed(1)}% of addresses control ${context.parsed.y.toFixed(1)}% of transactions`;
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                type: 'linear',
+                                title: {
+                                    display: true,
+                                    text: 'Cumulative % of Addresses',
+                                    color: '#F7F9FC',
+                                    font: { size: 14 }
+                                },
+                                grid: { 
+                                    color: 'rgba(255, 255, 255, 0.1)',
+                                    drawBorder: false
+                                },
+                                ticks: { 
+                                    color: '#F7F9FC',
+                                    callback: function(value) {
+                                        return value + '%';
+                                    }
+                                },
+                                min: 0,
+                                max: 100
+                            },
+                            y: {
+                                title: {
+                                    display: true,
+                                    text: 'Cumulative % of Transactions',
+                                    color: '#F7F9FC',
+                                    font: { size: 14 }
+                                },
+                                grid: { 
+                                    color: 'rgba(255, 255, 255, 0.1)',
+                                    drawBorder: false
+                                },
+                                ticks: { 
+                                    color: '#F7F9FC',
+                                    callback: function(value) {
+                                        return value + '%';
+                                    }
+                                },
+                                min: 0,
+                                max: 100
+                            }
+                        }
+                    }
+                });
+                
+                // Generate insights
+                const insightsHtml = data.insights.map(insight => 
+                    `<div class="insight-item">${insight}</div>`
+                ).join('');
+                document.getElementById('insights').innerHTML = insightsHtml;
+                
+                // Show content
+                document.getElementById('loadingState').style.display = 'none';
+                document.getElementById('mainContent').style.display = 'block';
+                
+            } catch (error) {
+                console.error('Error loading distribution data:', error);
+                document.getElementById('loadingState').innerHTML = 
+                    '<p style="color: #FF6B6B;">Error loading distribution data. Please try again.</p>';
+            }
+        }
+
+        // Load data when page loads
+        window.addEventListener('load', loadDistributionData);
+    </script>
+</body>
+</html>
