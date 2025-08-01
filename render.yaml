@@ -1,5 +1,4 @@
 services:
-  # Main web service
   - type: web
     name: react-burn-tracker
     runtime: node
@@ -21,12 +20,12 @@ services:
       mountPath: /app/data
       sizeGB: 1
 
-  # Historical sync worker (temporary - can be deleted after sync completes)
-  - type: worker
+jobs:
+  - type: job
     name: react-burn-historical-sync
     runtime: node
     buildCommand: npm install
-    startCommand: node scripts/sync-historical.js
+    startCommand: node scripts/sync-historical-direct.js
     envVars:
       - key: NODE_ENV
         value: production
@@ -35,6 +34,9 @@ services:
       - key: REACT_TOKEN_ADDRESS
         value: "0x0000000000000000000000000000000000fffFfF"
     disk:
+      name: burns-data  # Same disk as your web service!
+      mountPath: /app/data
+      sizeGB: 1    disk:
       name: burns-data  # Same disk as main service
       mountPath: /app/data
       sizeGB: 1
