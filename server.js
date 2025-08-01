@@ -713,6 +713,107 @@ app.get('/api/transactions/recent', (req, res) => {
 });
 
 // Get burn type statistics
+// Add this API endpoint to your server.js file, after the other endpoints (around line 800-900)
+// This should go before the health check endpoint
+
+// Get address transaction distribution with full analysis
+app.get('/api/analysis/distribution', (req, res) => {
+  db.all(
+    `SELECT from_address, COUNT(*) as tx_count
+     FROM burns
+     GROUP BY from_address
+     ORDER BY tx_count DESC`,
+    (err, rows) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      
+      // Convert to distribution object
+      const distribution = {};
+      rows.forEach(row => {
+        distribution[row.from_address] = row.tx_count;
+      });
+      
+      // Calculate statistics
+      const txCounts = rows.map(r => r.tx_count);
+      const totalAddresses = txCounts.length;
+      const totalTransactions = txCounts.reduce((sum, count) => sum + count, 0);
+      
+      // Calculate Gini coefficient
+      function calculateGini(values) {
+        const sorted = [...values].sort((a, b) => a - b);
+        const n = sorted.length;
+        const sum = sorted.reduce((a, b) => a + b, 0);
+        
+        let giniSum = 0;
+        for (let i = 0; i < n; i++) {
+          giniSum += (2 * (i + 1) - n - 1) * sorted[i];
+        }
+        
+        return giniSum / (n * sum);
+      }
+      
+      const gini = calculateGini(txCounts);
+      
+      // Calculate percentile metrics
+      const sortedCounts = [...txCounts].sort((a, b) => b - a); // Descending order
+      
+      // Top 10% control
+      const top10Index = Math.ceil(totalAddresses * 0.1);
+      const top10Sum = sortedCounts.slice(0, top10Index).reduce((sum, count) => sum + count, 0);
+      const top10Percent = (top10Sum / totalTransactions) * 100;
+      
+      // Bottom 50% control
+      const bottom50Index = Math.floor(totalAddresses * 0.5);
+      const bottom50Sum = sortedCounts.slice(-bottom50Index).reduce((sum, count) => sum + count, 0);
+      const bottom50Percent = (bottom50Sum / totalTransactions) * 100;
+      
+      // Generate insights
+      const insights = [];
+      
+      // Calculate various percentile points
+      const percentiles = [1, 5, 10, 20];
+      percentiles.forEach(p => {
+        const index = Math.ceil(totalAddresses * (p / 100));
+        const sum = sortedCounts.slice(0, index).reduce((sum, count) => sum + count, 0);
+        const percent = (sum / totalTransactions * 100).toFixed(1);
+        insights.push(`Top ${p}% of addresses generate ${percent}% of all transactions`);
+      });
+      
+      // Add concentration insight based on Gini
+      if (gini > 0.7) {
+        insights.push(`Very high concentration (Gini = ${gini.toFixed(3)}) - activity is dominated by few addresses`);
+      } else if (gini > 0.5) {
+        insights.push(`Moderate concentration (Gini = ${gini.toFixed(3)}) - typical for many blockchain networks`);
+      } else {
+        insights.push(`Low concentration (Gini = ${gini.toFixed(3)}) - activity is well distributed across addresses`);
+      }
+      
+      // Add insight about whales
+      const whaleThreshold = 1000; // Addresses with 1000+ transactions
+      const whales = sortedCounts.filter(count => count >= whaleThreshold).length;
+      if (whales > 0) {
+        const whaleTx = sortedCounts.filter(count => count >= whaleThreshold).reduce((sum, count) => sum + count, 0);
+        const whalePercent = (whaleTx / totalTransactions * 100).toFixed(1);
+        insights.push(`${whales} whale addresses (${whaleThreshold}+ transactions) account for ${whalePercent}% of all activity`);
+      }
+      
+      res.json({
+        distribution: distribution,
+        summary: {
+          totalAddresses: totalAddresses,
+          totalTransactions: totalTransactions,
+          gini: gini,
+          top10Percent: top10Percent,
+          bottom50Percent: bottom50Percent,
+          avgTransactionsPerAddress: (totalTransactions / totalAddresses).toFixed(2),
+          medianTransactions: sortedCounts[Math.floor(totalAddresses / 2)] || 0
+        },
+        insights: insights
+      });
+    }
+  );
+});
 app.get('/api/stats/burn-types', (req, res) => {
   db.all(
     `SELECT 
