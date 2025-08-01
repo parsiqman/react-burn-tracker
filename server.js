@@ -6,6 +6,7 @@ const sqlite3 = require('sqlite3').verbose();
 const WebSocket = require('ws');
 const path = require('path');
 const fs = require('fs');
+const { spawn } = require('child_process');
 require('dotenv').config();
 
 // Check if we should run historical sync
@@ -38,6 +39,12 @@ if (process.env.NODE_ENV !== 'production' && !fs.existsSync(path.dirname(dbPath)
 
 const db = new sqlite3.Database(dbPath);
 console.log(`Using persistent database at: ${dbPath}`);
+
+// Global variables to track if sync is running
+let syncInProgress = false;
+let syncProcess = null;
+let syncStartTime = null;
+let syncLogs = [];
 
 // Important Reactive Network addresses
 const REACT_TOKEN_ADDRESS = process.env.REACT_TOKEN_ADDRESS || '0x0000000000000000000000000000000000fffFfF';
@@ -819,6 +826,105 @@ app.get('/api/analysis/cross-chain', async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
+});
+
+// Admin endpoint to trigger historical sync
+app.post('/api/admin/sync-historical', (req, res) => {
+  // Simple authentication - you should improve this!
+  const adminToken = req.headers['x-admin-token'];
+  if (adminToken !== process.env.ADMIN_TOKEN) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  if (syncInProgress) {
+    return res.status(409).json({ 
+      error: 'Sync already in progress',
+      startTime: syncStartTime,
+      duration: Date.now() - syncStartTime
+    });
+  }
+
+  // Start the sync process
+  syncInProgress = true;
+  syncStartTime = Date.now();
+  syncLogs = [];
+
+  syncProcess = spawn('node', ['scripts/sync-historical-direct.js'], {
+    cwd: process.cwd(),
+    env: process.env
+  });
+
+  syncProcess.stdout.on('data', (data) => {
+    const log = data.toString();
+    console.log('[SYNC]', log);
+    syncLogs.push({ type: 'stdout', message: log, timestamp: new Date() });
+  });
+
+  syncProcess.stderr.on('data', (data) => {
+    const log = data.toString();
+    console.error('[SYNC ERROR]', log);
+    syncLogs.push({ type: 'stderr', message: log, timestamp: new Date() });
+  });
+
+  syncProcess.on('close', (code) => {
+    syncInProgress = false;
+    syncProcess = null;
+    const duration = Date.now() - syncStartTime;
+    console.log(`Historical sync completed with code ${code} in ${duration}ms`);
+    syncLogs.push({ 
+      type: 'complete', 
+      message: `Sync completed with code ${code}`, 
+      duration,
+      timestamp: new Date() 
+    });
+  });
+
+  res.json({ 
+    message: 'Historical sync started',
+    startTime: syncStartTime
+  });
+});
+
+// Endpoint to check sync status
+app.get('/api/admin/sync-status', (req, res) => {
+  // Simple authentication
+  const adminToken = req.headers['x-admin-token'];
+  if (adminToken !== process.env.ADMIN_TOKEN) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  if (syncInProgress) {
+    res.json({
+      status: 'running',
+      startTime: syncStartTime,
+      duration: Date.now() - syncStartTime,
+      recentLogs: syncLogs.slice(-20) // Last 20 log entries
+    });
+  } else {
+    res.json({
+      status: 'idle',
+      lastRunTime: syncStartTime,
+      lastRunDuration: syncStartTime ? Date.now() - syncStartTime : null,
+      recentLogs: syncLogs.slice(-20)
+    });
+  }
+});
+
+// Endpoint to stop sync if needed
+app.post('/api/admin/sync-stop', (req, res) => {
+  const adminToken = req.headers['x-admin-token'];
+  if (adminToken !== process.env.ADMIN_TOKEN) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  if (!syncInProgress || !syncProcess) {
+    return res.status(400).json({ error: 'No sync in progress' });
+  }
+
+  syncProcess.kill('SIGTERM');
+  syncInProgress = false;
+  
+  res.json({ message: 'Sync process terminated' });
 });
 
 // Health check
