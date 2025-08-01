@@ -52,22 +52,26 @@ const db = new sqlite3.Database(dbPath, sqlite3.OPEN_READWRITE, (err) => {
   // Test query
   console.log('Testing metadata query...');
   
-  db.get('SELECT value FROM metadata WHERE key = ?', ['deployment_block'], (err, row) => {
-    console.log('Deployment block query error:', err);
-    console.log('Deployment block query result:', row);
+  db.all("SELECT name FROM sqlite_master WHERE type='table'", (err, tables) => {
+    console.log('Tables in database:', err || tables);
     
-    if (!row) {
-      console.log('No deployment block found! Checking all metadata...');
+    db.get('SELECT value FROM metadata WHERE key = ?', ['deployment_block'], (err, row) => {
+      console.log('Deployment block query error:', err);
+      console.log('Deployment block query result:', row);
       
-      db.all('SELECT * FROM metadata', (err2, rows) => {
-        console.log('All metadata error:', err2);
-        console.log('All metadata rows:', rows);
-        process.exit(1);
-      });
-    } else {
-      console.log('Deployment block found:', row.value);
-      process.exit(0);
-    }
+      if (!row) {
+        console.log('No deployment block found! Checking all metadata...');
+        
+        db.all('SELECT * FROM metadata', (err2, rows) => {
+          console.log('All metadata error:', err2);
+          console.log('All metadata rows:', rows);
+          process.exit(1);
+        });
+      } else {
+        console.log('Deployment block found:', row.value);
+        process.exit(0);
+      }
+    });
   });
 });
 
