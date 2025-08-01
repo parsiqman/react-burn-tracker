@@ -6,10 +6,10 @@ const fs = require('fs');
 require('dotenv').config();
 
 // Configuration - optimized for speed
-const BATCH_SIZE = 100; // Reduced for reliability
-const CONCURRENT_BATCHES = 5; // Reduced to avoid overwhelming RPC
+const BATCH_SIZE = 50; // Reduced for better stability
+const CONCURRENT_BATCHES = 2; // Reduced to avoid database conflicts
 const PROGRESS_INTERVAL = 10000; // Log progress every 10k blocks
-const RATE_LIMIT_DELAY = 50; // Increased delay between calls
+const RATE_LIMIT_DELAY = 100; // Increased delay between calls
 
 // Initialize Web3
 const web3 = new Web3(process.env.RPC_URL || 'https://rpc.reactive.network');
@@ -157,31 +157,47 @@ async function processBatch(startBlock, endBlock) {
     // Batch insert burns
     if (burns.length > 0) {
       await new Promise((resolve, reject) => {
-        db.run('BEGIN TRANSACTION');
-        
-        const stmt = db.prepare(`
-          INSERT OR IGNORE INTO burns 
-          (tx_hash, block_number, amount, from_address, timestamp, usd_value, burn_type, gas_used) 
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `);
-        
-        for (const burn of burns) {
-          stmt.run([
-            burn.tx_hash,
-            burn.block_number,
-            burn.amount,
-            burn.from_address,
-            burn.timestamp,
-            burn.usd_value,
-            burn.burn_type,
-            burn.gas_used
-          ]);
-        }
-        
-        stmt.finalize();
-        db.run('COMMIT', (err) => {
-          if (err) reject(err);
-          else resolve();
+        db.serialize(() => {
+          db.run('BEGIN TRANSACTION', (err) => {
+            if (err) {
+              reject(err);
+              return;
+            }
+            
+            const stmt = db.prepare(`
+              INSERT OR IGNORE INTO burns 
+              (tx_hash, block_number, amount, from_address, timestamp, usd_value, burn_type, gas_used) 
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            `);
+            
+            for (const burn of burns) {
+              stmt.run([
+                burn.tx_hash,
+                burn.block_number,
+                burn.amount,
+                burn.from_address,
+                burn.timestamp,
+                burn.usd_value,
+                burn.burn_type,
+                burn.gas_used
+              ]);
+            }
+            
+            stmt.finalize((err) => {
+              if (err) {
+                db.run('ROLLBACK', () => reject(err));
+                return;
+              }
+              
+              db.run('COMMIT', (err) => {
+                if (err) {
+                  db.run('ROLLBACK', () => reject(err));
+                } else {
+                  resolve();
+                }
+              });
+            });
+          });
         });
       });
     }
@@ -233,13 +249,14 @@ async function syncHistorical() {
     
     // Check if we've already done historical sync
     const existingBurns = await new Promise((resolve) => {
-      db.get('SELECT MIN(block_number) as min_block FROM burns', (err, row) => {
-        resolve(row?.min_block || deploymentBlock);
+      db.get('SELECT MIN(block_number) as min_block, COUNT(*) as count FROM burns', (err, row) => {
+        resolve(row || {});
       });
     });
     
-    if (existingBurns < 100) {
+    if (existingBurns.min_block !== null && existingBurns.min_block < 100 && existingBurns.count > 1000) {
       console.log('Historical sync appears to be complete (burns found from early blocks).');
+      console.log(`Database has ${existingBurns.count} burn records starting from block ${existingBurns.min_block}`);
       console.log('To re-sync, please clear the database first.');
       process.exit(0);
     }
