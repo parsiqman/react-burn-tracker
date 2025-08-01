@@ -858,12 +858,20 @@ app.post('/api/admin/sync-historical', (req, res) => {
     const log = data.toString();
     console.log('[SYNC]', log);
     syncLogs.push({ type: 'stdout', message: log, timestamp: new Date() });
+    // Keep only last 100 logs to prevent memory issues
+    if (syncLogs.length > 100) {
+      syncLogs.shift();
+    }
   });
 
   syncProcess.stderr.on('data', (data) => {
     const log = data.toString();
     console.error('[SYNC ERROR]', log);
     syncLogs.push({ type: 'stderr', message: log, timestamp: new Date() });
+    // Keep only last 100 logs to prevent memory issues
+    if (syncLogs.length > 100) {
+      syncLogs.shift();
+    }
   });
 
   syncProcess.on('close', (code) => {
@@ -925,6 +933,49 @@ app.post('/api/admin/sync-stop', (req, res) => {
   syncInProgress = false;
   
   res.json({ message: 'Sync process terminated' });
+});
+
+// Get count of addresses with 100+ transactions
+app.get('/api/stats/active-addresses', (req, res) => {
+  const threshold = parseInt(req.query.threshold) || 100;
+  
+  db.get(
+    `SELECT COUNT(*) as active_addresses
+     FROM (
+       SELECT from_address, COUNT(*) as tx_count
+       FROM burns
+       GROUP BY from_address
+       HAVING tx_count >= ?
+     )`,
+    [threshold],
+    (err, row) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      
+      // Also get some additional interesting stats
+      db.all(
+        `SELECT from_address, COUNT(*) as tx_count, SUM(CAST(amount AS REAL)) as total_burned
+         FROM burns
+         GROUP BY from_address
+         HAVING tx_count >= ?
+         ORDER BY tx_count DESC
+         LIMIT 10`,
+        [threshold],
+        (err, topAddresses) => {
+          if (err) {
+            return res.status(500).json({ error: err.message });
+          }
+          
+          res.json({
+            activeAddresses: row.active_addresses || 0,
+            threshold: threshold,
+            topActiveAddresses: topAddresses || []
+          });
+        }
+      );
+    }
+  );
 });
 
 // Health check
