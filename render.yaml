@@ -34,9 +34,6 @@ jobs:
       - key: REACT_TOKEN_ADDRESS
         value: "0x0000000000000000000000000000000000fffFfF"
     disk:
-      name: burns-data  # Same disk as your web service!
-      mountPath: /app/data
-      sizeGB: 1    disk:
-      name: burns-data  # Same disk as main service
+      name: burns-data  # Same disk as main service - this is important!
       mountPath: /app/data
       sizeGB: 1
