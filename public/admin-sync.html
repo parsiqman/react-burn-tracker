@@ -77,6 +77,54 @@
             border-left: 4px solid #666;
         }
         
+        .progress-bar {
+            width: 100%;
+            height: 30px;
+            background: rgba(0, 0, 0, 0.5);
+            border-radius: 15px;
+            overflow: hidden;
+            margin: 1rem 0;
+            position: relative;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #4ECDC4 0%, #44A08D 100%);
+            transition: width 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin: 1rem 0;
+        }
+        
+        .stat-card {
+            background: rgba(78, 205, 196, 0.1);
+            border: 1px solid rgba(78, 205, 196, 0.3);
+            padding: 1rem;
+            border-radius: 8px;
+            text-align: center;
+        }
+        
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #4ECDC4;
+        }
+        
+        .stat-label {
+            font-size: 0.875rem;
+            color: rgba(255, 255, 255, 0.7);
+            margin-top: 0.25rem;
+        }
+        
         .logs {
             background: #000;
             padding: 1rem;
@@ -91,6 +139,7 @@
         .log-entry {
             margin-bottom: 0.5rem;
             white-space: pre-wrap;
+            word-break: break-all;
         }
         
         .log-entry.stderr {
@@ -102,12 +151,29 @@
             font-weight: bold;
         }
         
+        .log-entry.warning {
+            color: #FFD93D;
+        }
+        
+        .log-entry.progress {
+            color: #4ECDC4;
+            font-weight: bold;
+        }
+        
         .warning {
             background: rgba(255, 107, 107, 0.1);
             border: 1px solid rgba(255, 107, 107, 0.3);
             padding: 1rem;
             border-radius: 8px;
             margin-bottom: 2rem;
+        }
+        
+        .info-box {
+            background: rgba(78, 205, 196, 0.1);
+            border: 1px solid rgba(78, 205, 196, 0.3);
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
         }
     </style>
 </head>
@@ -117,7 +183,11 @@
         
         <div class="warning">
             <strong>⚠️ Warning:</strong> Historical sync is a resource-intensive process that will process ~1.7 million blocks. 
-            It may take 10-20 hours to complete. Only run this when necessary.
+            It may take 10-20 hours to complete. The improved sync includes automatic retry logic and checkpoint saving.
+        </div>
+        
+        <div class="info-box" id="resumeInfo" style="display: none;">
+            <strong>ℹ️ Resume Available:</strong> Previous sync can be resumed from checkpoint block <span id="checkpointBlock"></span>
         </div>
         
         <div class="auth-section">
@@ -129,13 +199,47 @@
         
         <div class="controls">
             <button id="startBtn" onclick="startSync()" disabled>Start Historical Sync</button>
-            <button id="stopBtn" onclick="stopSync()" disabled>Stop Sync</button>
+            <button id="stopBtn" onclick="stopSync()" disabled>Stop Sync (Saves Progress)</button>
+            <button id="resetBtn" onclick="resetSync()" disabled>Reset Checkpoint</button>
             <button id="refreshBtn" onclick="checkStatus()">Refresh Status</button>
+            
+            <div style="margin-top: 1rem; display: flex; align-items: center; gap: 1rem;">
+                <label style="display: flex; align-items: center; gap: 0.5rem;">
+                    <input type="checkbox" id="autoRestartCheckbox" onchange="toggleAutoRestart()">
+                    <span>Enable Auto-Restart on Failure</span>
+                </label>
+                <span id="autoRestartStatus" style="color: #4ECDC4; font-size: 0.875rem;"></span>
+            </div>
         </div>
         
         <div id="status" class="status idle">
             <h3>Status: <span id="statusText">Not authenticated</span></h3>
             <div id="statusDetails"></div>
+            
+            <div id="progressContainer" style="display: none;">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill" style="width: 0%">0%</div>
+                </div>
+                
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-value" id="currentBlock">-</div>
+                        <div class="stat-label">Current Block</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="totalBlocks">-</div>
+                        <div class="stat-label">Total Blocks</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="dbBurns">-</div>
+                        <div class="stat-label">Burns in DB</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="processUptime">-</div>
+                        <div class="stat-label">Running Time</div>
+                    </div>
+                </div>
+            </div>
         </div>
         
         <div class="logs" id="logs" style="display: none;">
@@ -163,7 +267,12 @@
         }
         
         async function startSync() {
-            if (!confirm('Are you sure you want to start the historical sync? This will take many hours.')) {
+            const autoRestart = document.getElementById('autoRestartCheckbox').checked;
+            const message = autoRestart 
+                ? 'Are you sure you want to start the historical sync with auto-restart enabled? The process will automatically restart if it fails.'
+                : 'Are you sure you want to start the historical sync? This will take many hours.';
+                
+            if (!confirm(message)) {
                 return;
             }
             
@@ -171,14 +280,18 @@
                 const response = await fetch('/api/admin/sync-historical', {
                     method: 'POST',
                     headers: {
-                        'X-Admin-Token': adminToken
-                    }
+                        'X-Admin-Token': adminToken,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        autoRestart: autoRestart
+                    })
                 });
                 
                 const data = await response.json();
                 
                 if (response.ok) {
-                    alert('Historical sync started!');
+                    alert(data.message + '\n' + data.note);
                     startAutoRefresh();
                     checkStatus();
                 } else {
@@ -189,8 +302,40 @@
             }
         }
         
+        async function toggleAutoRestart() {
+            const enabled = document.getElementById('autoRestartCheckbox').checked;
+            
+            try {
+                const response = await fetch('/api/admin/sync-autorestart', {
+                    method: 'POST',
+                    headers: {
+                        'X-Admin-Token': adminToken,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        enabled: enabled
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    document.getElementById('autoRestartStatus').textContent = data.message;
+                    setTimeout(() => {
+                        document.getElementById('autoRestartStatus').textContent = '';
+                    }, 3000);
+                } else {
+                    alert('Error: ' + data.error);
+                    document.getElementById('autoRestartCheckbox').checked = !enabled;
+                }
+            } catch (error) {
+                alert('Failed to toggle auto-restart: ' + error.message);
+                document.getElementById('autoRestartCheckbox').checked = !enabled;
+            }
+        }
+        
         async function stopSync() {
-            if (!confirm('Are you sure you want to stop the sync?')) {
+            if (!confirm('Are you sure you want to stop the sync? Progress will be saved and can be resumed.')) {
                 return;
             }
             
@@ -207,6 +352,27 @@
                 checkStatus();
             } catch (error) {
                 alert('Failed to stop sync: ' + error.message);
+            }
+        }
+        
+        async function resetSync() {
+            if (!confirm('Are you sure you want to reset the checkpoint? The next sync will start from block 0.')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/admin/sync-reset', {
+                    method: 'POST',
+                    headers: {
+                        'X-Admin-Token': adminToken
+                    }
+                });
+                
+                const data = await response.json();
+                alert(data.message || data.error);
+                checkStatus();
+            } catch (error) {
+                alert('Failed to reset sync: ' + error.message);
             }
         }
         
@@ -239,29 +405,77 @@
             const statusDetails = document.getElementById('statusDetails');
             const startBtn = document.getElementById('startBtn');
             const stopBtn = document.getElementById('stopBtn');
+            const resetBtn = document.getElementById('resetBtn');
             const logsDiv = document.getElementById('logs');
+            const progressContainer = document.getElementById('progressContainer');
+            const resumeInfo = document.getElementById('resumeInfo');
             
             if (data.error) {
                 statusText.textContent = data.error;
                 statusEl.className = 'status idle';
                 startBtn.disabled = true;
                 stopBtn.disabled = true;
+                resetBtn.disabled = true;
                 return;
             }
             
             syncStatus = data;
+            
+            // Update auto-restart status
+            if (data.autoRestart) {
+                document.getElementById('autoRestartCheckbox').checked = data.autoRestart.enabled;
+                if (data.autoRestart.enabled && data.autoRestart.attempts > 0) {
+                    document.getElementById('autoRestartStatus').textContent = 
+                        `(${data.autoRestart.attempts}/${data.autoRestart.maxAttempts} restart attempts)`;
+                }
+            }
+            
+            // Update database stats if available
+            if (data.databaseStats) {
+                document.getElementById('dbBurns').textContent = 
+                    (data.databaseStats.total_burns || 0).toLocaleString();
+            }
             
             if (data.status === 'running') {
                 statusEl.className = 'status running';
                 statusText.textContent = 'Running';
                 startBtn.disabled = true;
                 stopBtn.disabled = false;
+                resetBtn.disabled = true;
+                
+                progressContainer.style.display = 'block';
+                
+                // Update progress bar
+                if (data.currentProgress) {
+                    const percentage = parseFloat(data.currentProgress.percentage);
+                    document.getElementById('progressFill').style.width = percentage + '%';
+                    document.getElementById('progressFill').textContent = percentage.toFixed(2) + '%';
+                    document.getElementById('currentBlock').textContent = 
+                        data.currentProgress.current.toLocaleString();
+                    document.getElementById('totalBlocks').textContent = 
+                        data.currentProgress.total.toLocaleString();
+                } else if (data.checkpoint) {
+                    // Use checkpoint data if no progress log
+                    const current = parseInt(data.checkpoint.lastCheckpoint);
+                    const total = parseInt(data.checkpoint.deploymentBlock);
+                    const percentage = (current / total * 100).toFixed(2);
+                    document.getElementById('progressFill').style.width = percentage + '%';
+                    document.getElementById('progressFill').textContent = percentage + '%';
+                    document.getElementById('currentBlock').textContent = current.toLocaleString();
+                    document.getElementById('totalBlocks').textContent = total.toLocaleString();
+                }
+                
+                // Update process info
+                if (data.processInfo) {
+                    document.getElementById('processUptime').textContent = data.processInfo.uptime;
+                }
                 
                 const duration = formatDuration(data.duration);
                 statusDetails.innerHTML = `
                     <p>Started: ${new Date(data.startTime).toLocaleString()}</p>
                     <p>Duration: ${duration}</p>
-                    <p>⏳ Sync in progress...</p>
+                    <p>Process PID: ${data.processInfo?.pid || 'Unknown'}</p>
+                    <p>⏳ Sync in progress with automatic retry and checkpoint saving...</p>
                 `;
                 
                 if (!autoRefreshInterval) {
@@ -272,10 +486,23 @@
                 statusText.textContent = 'Idle';
                 startBtn.disabled = false;
                 stopBtn.disabled = true;
+                resetBtn.disabled = false;
+                progressContainer.style.display = 'none';
+                
+                // Show resume info if checkpoint exists
+                if (data.checkpoint && data.checkpoint.canResume) {
+                    resumeInfo.style.display = 'block';
+                    document.getElementById('checkpointBlock').textContent = 
+                        parseInt(data.checkpoint.lastCheckpoint).toLocaleString();
+                } else {
+                    resumeInfo.style.display = 'none';
+                }
                 
                 if (data.lastRunTime) {
                     statusDetails.innerHTML = `
                         <p>Last run: ${new Date(data.lastRunTime).toLocaleString()}</p>
+                        <p>Checkpoint: Block ${parseInt(data.checkpoint?.lastCheckpoint || 0).toLocaleString()}</p>
+                        <p>Deployment Block: ${parseInt(data.checkpoint?.deploymentBlock || 0).toLocaleString()}</p>
                     `;
                 } else {
                     statusDetails.innerHTML = '<p>No sync has been run yet</p>';
@@ -315,7 +542,7 @@
         
         function startAutoRefresh() {
             if (!autoRefreshInterval) {
-                autoRefreshInterval = setInterval(checkStatus, 5000); // Refresh every 5 seconds
+                autoRefreshInterval = setInterval(checkStatus, 3000); // Refresh every 3 seconds
             }
         }
         
