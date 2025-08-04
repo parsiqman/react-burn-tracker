@@ -6,7 +6,6 @@ const sqlite3 = require('sqlite3').verbose();
 const WebSocket = require('ws');
 const path = require('path');
 const fs = require('fs');
-const { spawn } = require('child_process');
 require('dotenv').config();
 
 // Check if we should run historical sync
@@ -40,11 +39,19 @@ if (process.env.NODE_ENV !== 'production' && !fs.existsSync(path.dirname(dbPath)
 const db = new sqlite3.Database(dbPath);
 console.log(`Using persistent database at: ${dbPath}`);
 
+// Set database optimizations for better concurrency
+db.run("PRAGMA journal_mode = WAL");
+db.run("PRAGMA busy_timeout = 30000");
+db.run("PRAGMA cache_size = 10000");
+db.run("PRAGMA synchronous = NORMAL");
+
 // Global variables to track if sync is running
 let syncInProgress = false;
-let syncProcess = null;
 let syncStartTime = null;
 let syncLogs = [];
+let syncStats = null;
+let syncInterval = null;
+let syncPaused = false;
 
 // Important Reactive Network addresses
 const REACT_TOKEN_ADDRESS = process.env.REACT_TOKEN_ADDRESS || '0x0000000000000000000000000000000000fffFfF';
@@ -71,40 +78,6 @@ const CALLBACK_PROXIES = {
 
 // Create a reverse lookup for quick checking
 const ALL_CALLBACK_PROXIES = new Set(Object.values(CALLBACK_PROXIES).map(addr => addr.toLowerCase()));
-
-// Hyperlane Mailbox addresses
-const HYPERLANE_MAILBOXES = {
-  // Mainnet
-  '1': '0x0000000000000000000000000000000000000000', // Ethereum
-  '56': '0x0000000000000000000000000000000000000000', // BSC
-  '43114': '0x0000000000000000000000000000000000000000', // Avalanche
-  '8453': '0x0000000000000000000000000000000000000000', // Base
-  '146': '0x0000000000000000000000000000000000000000', // Sonic
-  '1597': '0x0000000000000000000000000000000000000000' // Reactive
-};
-
-// ABI for Transfer event (standard ERC20)
-const TRANSFER_EVENT_ABI = {
-  anonymous: false,
-  inputs: [
-    { indexed: true, name: 'from', type: 'address' },
-    { indexed: true, name: 'to', type: 'address' },
-    { indexed: false, name: 'value', type: 'uint256' }
-  ],
-  name: 'Transfer',
-  type: 'event'
-};
-
-// ABI for debt settlement events (coverDebt calls)
-const DEBT_SETTLED_EVENT_ABI = {
-  anonymous: false,
-  inputs: [
-    { indexed: true, name: 'contract', type: 'address' },
-    { indexed: false, name: 'amount', type: 'uint256' }
-  ],
-  name: 'DebtSettled',
-  type: 'event'
-};
 
 // Price fetching (you'll need to implement based on your price source)
 let currentPrice = 0.0234; // Default price
@@ -283,12 +256,6 @@ async function processRegularTransaction(tx, block) {
         crossChainInfo = '[System Contract Payment]';
       }
       
-      // Check if it's a Hyperlane mailbox
-      if (Object.values(HYPERLANE_MAILBOXES).includes(toAddress)) {
-        isLikelyCrossChain = true;
-        crossChainInfo = '[Hyperlane Mailbox]';
-      }
-      
       // Check method signature for cross-chain patterns
       if (tx.input && tx.input.length >= 10) {
         const methodSig = tx.input.substring(0, 10);
@@ -420,7 +387,11 @@ async function trackSystemContractEvents(fromBlock) {
       try {
         // Decode the transfer event
         const decodedEvent = web3.eth.abi.decodeLog(
-          TRANSFER_EVENT_ABI.inputs,
+          [
+            { type: 'address', name: 'from', indexed: true },
+            { type: 'address', name: 'to', indexed: true },
+            { type: 'uint256', name: 'value', indexed: false }
+          ],
           event.data,
           event.topics.slice(1)
         );
@@ -541,6 +512,258 @@ async function pollBlocks() {
     
     console.log('Started block polling for comprehensive burn tracking');
   });
+}
+
+// Historical sync implementation directly in server
+async function processHistoricalBatch(startBlock, endBlock) {
+  const burns = [];
+  
+  try {
+    // Process blocks one by one for stability
+    for (let blockNum = startBlock; blockNum <= endBlock; blockNum++) {
+      // Check if sync is paused
+      if (syncPaused) {
+        return { burns, lastBlock: blockNum - 1 };
+      }
+      
+      try {
+        // Add delay to avoid rate limiting
+        await new Promise(resolve => setTimeout(resolve, 150));
+        
+        const block = await web3.eth.getBlock(blockNum, true);
+        
+        if (block && block.transactions && block.transactions.length > 0) {
+          syncStats.blocksWithTx++;
+          
+          // Process transactions in smaller chunks
+          for (let i = 0; i < block.transactions.length; i += 5) {
+            const txChunk = block.transactions.slice(i, i + 5);
+            
+            for (const tx of txChunk) {
+              try {
+                const receipt = await web3.eth.getTransactionReceipt(tx.hash);
+                
+                if (receipt && receipt.gasUsed) {
+                  const gasUsed = BigInt(receipt.gasUsed);
+                  let effectiveGasPrice = BigInt(0);
+                  
+                  if (receipt.effectiveGasPrice) {
+                    effectiveGasPrice = BigInt(receipt.effectiveGasPrice);
+                  } else if (tx.gasPrice) {
+                    effectiveGasPrice = BigInt(tx.gasPrice);
+                  } else if (block.baseFeePerGas) {
+                    const baseFee = BigInt(block.baseFeePerGas);
+                    const priorityFee = tx.maxPriorityFeePerGas ? BigInt(tx.maxPriorityFeePerGas) : BigInt(0);
+                    effectiveGasPrice = baseFee + priorityFee;
+                  }
+                  
+                  const burnedWei = gasUsed * effectiveGasPrice;
+                  const burnedReact = parseFloat(web3.utils.fromWei(burnedWei.toString(), 'ether'));
+                  
+                  if (burnedReact > 0) {
+                    let burnType = 'gas_fee';
+                    if (tx.to && tx.to.toLowerCase() === SYSTEM_CONTRACT_ADDRESS.toLowerCase()) {
+                      burnType = 'system_contract_payment';
+                    } else if (receipt.gasUsed === 21000) {
+                      burnType = 'gas_fee_transfer';
+                    } else {
+                      burnType = 'gas_fee_contract';
+                    }
+                    
+                    burns.push({
+                      tx_hash: tx.hash,
+                      block_number: Number(block.number),
+                      amount: burnedReact.toFixed(18),
+                      from_address: tx.from,
+                      timestamp: Number(block.timestamp),
+                      usd_value: 0,
+                      burn_type: burnType,
+                      gas_used: Number(receipt.gasUsed)
+                    });
+                    
+                    syncStats.totalBurned += burnedReact;
+                  }
+                  
+                  syncStats.transactionsProcessed++;
+                }
+              } catch (error) {
+                console.error(`Error processing tx ${tx.hash}:`, error.message);
+                syncStats.errors++;
+              }
+            }
+            
+            // Small delay between chunks
+            await new Promise(resolve => setTimeout(resolve, 50));
+          }
+        } else {
+          syncStats.emptyBlocks++;
+        }
+        
+        syncStats.blocksProcessed++;
+        syncStats.lastBlock = blockNum;
+        
+      } catch (error) {
+        console.error(`Error fetching block ${blockNum}:`, error.message);
+        syncStats.errors++;
+        
+        // Retry once after a delay
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        try {
+          const block = await web3.eth.getBlock(blockNum, false);
+          if (block) {
+            syncStats.blocksProcessed++;
+            syncStats.lastBlock = blockNum;
+          }
+        } catch (retryError) {
+          console.error(`Retry failed for block ${blockNum}:`, retryError.message);
+        }
+      }
+    }
+    
+    return { burns, lastBlock: endBlock };
+    
+  } catch (error) {
+    console.error(`Critical error in batch ${startBlock}-${endBlock}:`, error.message);
+    syncStats.errors++;
+    return { burns, lastBlock: startBlock - 1 };
+  }
+}
+
+// Main historical sync loop
+async function runHistoricalSync() {
+  if (!syncStats) return;
+  
+  try {
+    // Get deployment block and checkpoint
+    const deploymentBlock = await new Promise((resolve) => {
+      db.get('SELECT value FROM metadata WHERE key = ?', ['deployment_block'], (err, row) => {
+        resolve(row ? parseInt(row.value) : null);
+      });
+    });
+    
+    if (!deploymentBlock) {
+      throw new Error('No deployment block found');
+    }
+    
+    const checkpointBlock = await new Promise((resolve) => {
+      db.get('SELECT value FROM metadata WHERE key = ?', ['historical_sync_checkpoint'], (err, row) => {
+        resolve(row ? parseInt(row.value) : 0);
+      });
+    });
+    
+    syncStats.targetBlock = deploymentBlock;
+    let currentBlock = checkpointBlock;
+    
+    console.log(`Starting sync from block ${currentBlock} to ${deploymentBlock}`);
+    syncLogs.push({ 
+      type: 'stdout', 
+      message: `Starting sync from block ${currentBlock} to ${deploymentBlock}`, 
+      timestamp: new Date() 
+    });
+    
+    // Process in small batches
+    const BATCH_SIZE = 10; // Very small batches for stability
+    
+    while (currentBlock < deploymentBlock && syncInProgress && !syncPaused) {
+      const batchEnd = Math.min(currentBlock + BATCH_SIZE - 1, deploymentBlock);
+      
+      console.log(`Processing batch: blocks ${currentBlock} to ${batchEnd}`);
+      
+      const { burns, lastBlock } = await processHistoricalBatch(currentBlock, batchEnd);
+      
+      // Insert burns in smaller transactions
+      if (burns.length > 0) {
+        const CHUNK_SIZE = 100;
+        for (let i = 0; i < burns.length; i += CHUNK_SIZE) {
+          const chunk = burns.slice(i, i + CHUNK_SIZE);
+          
+          await new Promise((resolve, reject) => {
+            db.serialize(() => {
+              db.run('BEGIN IMMEDIATE TRANSACTION');
+              
+              const stmt = db.prepare(`
+                INSERT OR IGNORE INTO burns 
+                (tx_hash, block_number, amount, from_address, timestamp, usd_value, burn_type, gas_used) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+              `);
+              
+              for (const burn of chunk) {
+                stmt.run([
+                  burn.tx_hash,
+                  burn.block_number,
+                  burn.amount,
+                  burn.from_address,
+                  burn.timestamp,
+                  burn.usd_value,
+                  burn.burn_type,
+                  burn.gas_used
+                ]);
+              }
+              
+              stmt.finalize();
+              
+              db.run('COMMIT', (err) => {
+                if (err) {
+                  db.run('ROLLBACK');
+                  reject(err);
+                } else {
+                  resolve();
+                }
+              });
+            });
+          });
+        }
+      }
+      
+      // Update checkpoint
+      currentBlock = lastBlock + 1;
+      await new Promise((resolve) => {
+        db.run(
+          'INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)',
+          ['historical_sync_checkpoint', lastBlock.toString()],
+          resolve
+        );
+      });
+      
+      // Update progress
+      if (syncStats.blocksProcessed % 1000 === 0 || currentBlock >= deploymentBlock) {
+        const elapsed = (Date.now() - syncStats.startTime) / 1000;
+        const blocksPerSecond = syncStats.blocksProcessed / elapsed;
+        const eta = (deploymentBlock - lastBlock) / blocksPerSecond;
+        
+        const progressMsg = `Progress: ${lastBlock}/${deploymentBlock} (${(lastBlock/deploymentBlock*100).toFixed(2)}%) - ${blocksPerSecond.toFixed(1)} blocks/sec - ETA: ${(eta/3600).toFixed(1)}h`;
+        console.log(progressMsg);
+        
+        syncLogs.push({ type: 'stdout', message: progressMsg, timestamp: new Date() });
+        if (syncLogs.length > 100) syncLogs.shift();
+      }
+      
+      // Small pause between batches
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    
+    // Sync completed
+    const elapsed = (Date.now() - syncStats.startTime) / 1000;
+    const completeMsg = `Sync completed! Processed ${syncStats.blocksProcessed} blocks in ${(elapsed/3600).toFixed(2)} hours`;
+    console.log(completeMsg);
+    
+    syncLogs.push({ 
+      type: 'complete', 
+      message: completeMsg, 
+      duration: elapsed * 1000,
+      timestamp: new Date() 
+    });
+    
+  } catch (error) {
+    console.error('Fatal error in historical sync:', error);
+    syncLogs.push({ type: 'stderr', message: error.message, timestamp: new Date() });
+  } finally {
+    syncInProgress = false;
+    if (syncInterval) {
+      clearInterval(syncInterval);
+      syncInterval = null;
+    }
+  }
 }
 
 // API Endpoints
@@ -713,8 +936,24 @@ app.get('/api/transactions/recent', (req, res) => {
 });
 
 // Get burn type statistics
-// Add this API endpoint to your server.js file, after the other endpoints (around line 800-900)
-// This should go before the health check endpoint
+app.get('/api/stats/burn-types', (req, res) => {
+  db.all(
+    `SELECT 
+      burn_type,
+      COUNT(*) as count,
+      SUM(CAST(amount AS REAL)) as total,
+      AVG(CAST(amount AS REAL)) as average
+     FROM burns
+     GROUP BY burn_type
+     ORDER BY total DESC`,
+    (err, rows) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      res.json(rows);
+    }
+  );
+});
 
 // Get address transaction distribution with full analysis
 app.get('/api/analysis/distribution', (req, res) => {
@@ -814,120 +1053,6 @@ app.get('/api/analysis/distribution', (req, res) => {
     }
   );
 });
-app.get('/api/stats/burn-types', (req, res) => {
-  db.all(
-    `SELECT 
-      burn_type,
-      COUNT(*) as count,
-      SUM(CAST(amount AS REAL)) as total,
-      AVG(CAST(amount AS REAL)) as average
-     FROM burns
-     GROUP BY burn_type
-     ORDER BY total DESC`,
-    (err, rows) => {
-      if (err) {
-        return res.status(500).json({ error: err.message });
-      }
-      res.json(rows);
-    }
-  );
-});
-
-// Get transaction analysis
-app.get('/api/analysis/patterns', (req, res) => {
-  db.all(
-    `SELECT 
-      burn_type,
-      amount,
-      COUNT(*) as count,
-      COUNT(DISTINCT from_address) as unique_addresses
-     FROM burns
-     WHERE amount > 0
-     GROUP BY burn_type, amount
-     ORDER BY count DESC
-     LIMIT 20`,
-    (err, patterns) => {
-      if (err) {
-        return res.status(500).json({ error: err.message });
-      }
-      
-      // Get most active addresses
-      db.all(
-        `SELECT 
-          from_address,
-          COUNT(*) as tx_count,
-          SUM(CAST(amount AS REAL)) as total_burned
-         FROM burns
-         GROUP BY from_address
-         ORDER BY tx_count DESC
-         LIMIT 10`,
-        (err, addresses) => {
-          if (err) {
-            return res.status(500).json({ error: err.message });
-          }
-          
-          res.json({
-            patterns: patterns,
-            topAddresses: addresses
-          });
-        }
-      );
-    }
-  );
-});
-
-// Get cross-chain activity analysis
-app.get('/api/analysis/cross-chain', async (req, res) => {
-  try {
-    // Get recent blocks to analyze
-    const currentBlock = await web3.eth.getBlockNumber();
-    const fromBlock = currentBlock - 100n; // Last 100 blocks
-    
-    const crossChainActivity = {
-      systemContractCalls: 0,
-      methodSignatures: {},
-      activeContracts: new Set(),
-      potentialBridges: []
-    };
-    
-    // Analyze recent transactions
-    for (let i = fromBlock; i <= currentBlock; i++) {
-      const block = await web3.eth.getBlock(i, true);
-      if (block && block.transactions) {
-        for (const tx of block.transactions) {
-          // Check for system contract interactions
-          if (tx.to && tx.to.toLowerCase() === SYSTEM_CONTRACT_ADDRESS.toLowerCase()) {
-            crossChainActivity.systemContractCalls++;
-          }
-          
-          // Track method signatures
-          if (tx.input && tx.input.length > 10) {
-            const methodSig = tx.input.substring(0, 10);
-            crossChainActivity.methodSignatures[methodSig] = (crossChainActivity.methodSignatures[methodSig] || 0) + 1;
-          }
-          
-          // Track contract addresses
-          if (tx.to && tx.to !== '0x0000000000000000000000000000000000000000') {
-            crossChainActivity.activeContracts.add(tx.to.toLowerCase());
-          }
-        }
-      }
-    }
-    
-    res.json({
-      blocksAnalyzed: Number(currentBlock - fromBlock + 1n),
-      systemContractActivity: crossChainActivity.systemContractCalls,
-      uniqueContracts: crossChainActivity.activeContracts.size,
-      topMethodSignatures: Object.entries(crossChainActivity.methodSignatures)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 10)
-        .map(([sig, count]) => ({ signature: sig, count })),
-      contracts: Array.from(crossChainActivity.activeContracts).slice(0, 20)
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
 
 // Admin endpoint to trigger historical sync
 app.post('/api/admin/sync-historical', (req, res) => {
@@ -945,47 +1070,30 @@ app.post('/api/admin/sync-historical', (req, res) => {
     });
   }
 
+  // Initialize sync stats
+  syncStats = {
+    startTime: Date.now(),
+    blocksProcessed: 0,
+    transactionsProcessed: 0,
+    totalBurned: 0,
+    errors: 0,
+    lastBlock: 0,
+    emptyBlocks: 0,
+    blocksWithTx: 0,
+    targetBlock: 0
+  };
+
   // Start the sync process
   syncInProgress = true;
   syncStartTime = Date.now();
   syncLogs = [];
+  syncPaused = false;
 
-  syncProcess = spawn('node', ['scripts/sync-historical-force.js'], {
-    cwd: process.cwd(),
-    env: process.env
-  });
-
-  syncProcess.stdout.on('data', (data) => {
-    const log = data.toString();
-    console.log('[SYNC]', log);
-    syncLogs.push({ type: 'stdout', message: log, timestamp: new Date() });
-    // Keep only last 100 logs to prevent memory issues
-    if (syncLogs.length > 100) {
-      syncLogs.shift();
-    }
-  });
-
-  syncProcess.stderr.on('data', (data) => {
-    const log = data.toString();
-    console.error('[SYNC ERROR]', log);
-    syncLogs.push({ type: 'stderr', message: log, timestamp: new Date() });
-    // Keep only last 100 logs to prevent memory issues
-    if (syncLogs.length > 100) {
-      syncLogs.shift();
-    }
-  });
-
-  syncProcess.on('close', (code) => {
+  // Run sync in background
+  runHistoricalSync().catch(error => {
+    console.error('Historical sync failed:', error);
+    syncLogs.push({ type: 'stderr', message: `Fatal error: ${error.message}`, timestamp: new Date() });
     syncInProgress = false;
-    syncProcess = null;
-    const duration = Date.now() - syncStartTime;
-    console.log(`Historical sync completed with code ${code} in ${duration}ms`);
-    syncLogs.push({ 
-      type: 'complete', 
-      message: `Sync completed with code ${code}`, 
-      duration,
-      timestamp: new Date() 
-    });
   });
 
   res.json({ 
@@ -1002,12 +1110,25 @@ app.get('/api/admin/sync-status', (req, res) => {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
-  if (syncInProgress) {
+  if (syncInProgress && syncStats) {
+    const elapsed = (Date.now() - syncStats.startTime) / 1000;
+    const blocksPerSecond = syncStats.blocksProcessed / elapsed || 0;
+    
     res.json({
       status: 'running',
       startTime: syncStartTime,
       duration: Date.now() - syncStartTime,
-      recentLogs: syncLogs.slice(-20) // Last 20 log entries
+      stats: {
+        blocksProcessed: syncStats.blocksProcessed,
+        currentBlock: syncStats.lastBlock,
+        targetBlock: syncStats.targetBlock,
+        progress: syncStats.targetBlock > 0 ? (syncStats.lastBlock / syncStats.targetBlock * 100).toFixed(2) + '%' : '0%',
+        blocksPerSecond: blocksPerSecond.toFixed(1),
+        transactionsProcessed: syncStats.transactionsProcessed,
+        totalBurned: syncStats.totalBurned.toFixed(4),
+        errors: syncStats.errors
+      },
+      recentLogs: syncLogs.slice(-20)
     });
   } else {
     res.json({
@@ -1026,14 +1147,22 @@ app.post('/api/admin/sync-stop', (req, res) => {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
-  if (!syncInProgress || !syncProcess) {
+  if (!syncInProgress) {
     return res.status(400).json({ error: 'No sync in progress' });
   }
 
-  syncProcess.kill('SIGTERM');
+  syncPaused = true;
   syncInProgress = false;
   
-  res.json({ message: 'Sync process terminated' });
+  // Save current progress
+  if (syncStats && syncStats.lastBlock > 0) {
+    db.run(
+      'INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)',
+      ['historical_sync_checkpoint', syncStats.lastBlock.toString()]
+    );
+  }
+  
+  res.json({ message: 'Sync process stopped' });
 });
 
 // Get count of addresses with 100+ transactions
@@ -1116,8 +1245,34 @@ server.listen(PORT, () => {
 // Graceful shutdown
 process.on('SIGTERM', () => {
   console.log('SIGTERM received, closing server...');
-  db.close();
-  wss.close();
-  server.close();
-  process.exit(0);
+  
+  // Stop sync if running
+  if (syncInProgress) {
+    syncPaused = true;
+    syncInProgress = false;
+    
+    // Save checkpoint
+    if (syncStats && syncStats.lastBlock > 0) {
+      db.run(
+        'INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)',
+        ['historical_sync_checkpoint', syncStats.lastBlock.toString()],
+        () => {
+          db.close();
+          wss.close();
+          server.close();
+          process.exit(0);
+        }
+      );
+    } else {
+      db.close();
+      wss.close();
+      server.close();
+      process.exit(0);
+    }
+  } else {
+    db.close();
+    wss.close();
+    server.close();
+    process.exit(0);
+  }
 });
