@@ -1,4 +1,4 @@
-// server.js - Production Backend for REACT Burn Tracker with Auto-Restart
+// server.js - Production Backend for REACT Burn Tracker
 const express = require('express');
 const cors = require('cors');
 const { Web3 } = require('web3');
@@ -45,13 +45,6 @@ let syncInProgress = false;
 let syncProcess = null;
 let syncStartTime = null;
 let syncLogs = [];
-
-// Global variables for auto-restart
-let autoRestartEnabled = false;
-let restartAttempts = 0;
-const MAX_RESTART_ATTEMPTS = 10;
-const RESTART_DELAY = 30000; // 30 seconds between restart attempts
-let restartTimeout = null;
 
 // Important Reactive Network addresses
 const REACT_TOKEN_ADDRESS = process.env.REACT_TOKEN_ADDRESS || '0x0000000000000000000000000000000000fffFfF';
@@ -550,161 +543,6 @@ async function pollBlocks() {
   });
 }
 
-// Function to automatically restart sync if it fails
-async function autoRestartSync() {
-  if (!autoRestartEnabled) {
-    console.log('Auto-restart is disabled, not restarting sync');
-    return;
-  }
-
-  if (restartAttempts >= MAX_RESTART_ATTEMPTS) {
-    console.error(`Max restart attempts (${MAX_RESTART_ATTEMPTS}) reached, stopping auto-restart`);
-    autoRestartEnabled = false;
-    
-    // Send alert notification (you could integrate with Discord, Slack, email, etc.)
-    syncLogs.push({
-      type: 'error',
-      message: `Auto-restart failed after ${MAX_RESTART_ATTEMPTS} attempts`,
-      timestamp: new Date()
-    });
-    return;
-  }
-
-  restartAttempts++;
-  console.log(`Auto-restarting sync (attempt ${restartAttempts}/${MAX_RESTART_ATTEMPTS})...`);
-  
-  syncLogs.push({
-    type: 'warning',
-    message: `Auto-restarting sync (attempt ${restartAttempts}/${MAX_RESTART_ATTEMPTS})`,
-    timestamp: new Date()
-  });
-
-  // Wait before restarting to avoid rapid restart loops
-  restartTimeout = setTimeout(() => {
-    startSyncProcess();
-  }, RESTART_DELAY);
-}
-
-// Modified function to start sync process
-function startSyncProcess() {
-  syncInProgress = true;
-  syncStartTime = Date.now();
-  let lastHeartbeat = Date.now();
-
-  // Use the stable sync script
-  syncProcess = spawn('node', ['scripts/sync-historical-stable.js'], {
-    cwd: process.cwd(),
-    env: process.env,
-    maxBuffer: 1024 * 1024 * 10 // 10MB
-  });
-
-  // Monitor process health
-  const heartbeatInterval = setInterval(() => {
-    const timeSinceLastOutput = Date.now() - lastHeartbeat;
-    if (timeSinceLastOutput > 300000) { // 5 minutes without output
-      console.error('Sync process appears to be hanging, killing and restarting...');
-      syncLogs.push({ 
-        type: 'warning', 
-        message: 'Process hanging - killing and restarting', 
-        timestamp: new Date() 
-      });
-      
-      // Kill the hanging process
-      if (syncProcess) {
-        syncProcess.kill('SIGKILL');
-      }
-    }
-  }, 60000); // Check every minute
-
-  syncProcess.stdout.on('data', (data) => {
-    lastHeartbeat = Date.now();
-    const log = data.toString();
-    console.log('[SYNC]', log);
-    
-    // Parse progress updates
-    const lines = log.split('\n').filter(line => line.trim());
-    for (const line of lines) {
-      syncLogs.push({ type: 'stdout', message: line.trim(), timestamp: new Date() });
-      
-      // Extract progress info
-      if (line.includes('Blocks:') && line.includes('/')) {
-        const match = line.match(/(\d+)\/(\d+)/);
-        if (match) {
-          const current = parseInt(match[1]);
-          const total = parseInt(match[2]);
-          syncLogs.push({ 
-            type: 'progress', 
-            current, 
-            total, 
-            percentage: ((current/total) * 100).toFixed(2),
-            timestamp: new Date() 
-          });
-        }
-      }
-    }
-    
-    // Keep only last 200 logs
-    if (syncLogs.length > 200) {
-      syncLogs = syncLogs.slice(-200);
-    }
-  });
-
-  syncProcess.stderr.on('data', (data) => {
-    lastHeartbeat = Date.now();
-    const log = data.toString();
-    console.error('[SYNC ERROR]', log);
-    syncLogs.push({ type: 'stderr', message: log.trim(), timestamp: new Date() });
-  });
-
-  syncProcess.on('error', (error) => {
-    console.error('Failed to start sync process:', error);
-    syncInProgress = false;
-    syncProcess = null;
-    clearInterval(heartbeatInterval);
-    
-    // Auto-restart on error
-    if (autoRestartEnabled) {
-      autoRestartSync();
-    }
-  });
-
-  syncProcess.on('close', (code) => {
-    syncInProgress = false;
-    syncProcess = null;
-    clearInterval(heartbeatInterval);
-    const duration = Date.now() - syncStartTime;
-    
-    console.log(`Historical sync process exited with code ${code} after ${duration}ms`);
-    
-    syncLogs.push({ 
-      type: code === 0 ? 'complete' : 'error', 
-      message: `Sync process exited with code ${code}`, 
-      duration,
-      timestamp: new Date() 
-    });
-    
-    // Check if we should restart
-    if (code !== 0 && autoRestartEnabled) {
-      // Non-zero exit code means error
-      syncLogs.push({
-        type: 'warning',
-        message: `Process crashed with code ${code}, will restart in ${RESTART_DELAY/1000} seconds`,
-        timestamp: new Date()
-      });
-      autoRestartSync();
-    } else if (code === 0) {
-      // Success - reset restart attempts
-      restartAttempts = 0;
-      autoRestartEnabled = false;
-      syncLogs.push({
-        type: 'complete',
-        message: 'Sync completed successfully!',
-        timestamp: new Date()
-      });
-    }
-  });
-}
-
 // API Endpoints
 
 // Get deployment info
@@ -1091,8 +929,9 @@ app.get('/api/analysis/cross-chain', async (req, res) => {
   }
 });
 
-// Enhanced admin endpoint with auto-restart option
+// Admin endpoint to trigger historical sync
 app.post('/api/admin/sync-historical', (req, res) => {
+  // Simple authentication - you should improve this!
   const adminToken = req.headers['x-admin-token'];
   if (adminToken !== process.env.ADMIN_TOKEN) {
     return res.status(401).json({ error: 'Unauthorized' });
@@ -1102,179 +941,85 @@ app.post('/api/admin/sync-historical', (req, res) => {
     return res.status(409).json({ 
       error: 'Sync already in progress',
       startTime: syncStartTime,
-      duration: Date.now() - syncStartTime,
-      autoRestart: autoRestartEnabled
+      duration: Date.now() - syncStartTime
     });
   }
 
-  // Check for auto-restart parameter
-  autoRestartEnabled = req.body?.autoRestart === true;
-  restartAttempts = 0;
-  
-  if (restartTimeout) {
-    clearTimeout(restartTimeout);
-    restartTimeout = null;
-  }
-
-  // Clear logs
+  // Start the sync process
+  syncInProgress = true;
+  syncStartTime = Date.now();
   syncLogs = [];
-  
-  // Start the sync
-  startSyncProcess();
+
+  syncProcess = spawn('node', ['scripts/sync-historical-force.js'], {
+    cwd: process.cwd(),
+    env: process.env
+  });
+
+  syncProcess.stdout.on('data', (data) => {
+    const log = data.toString();
+    console.log('[SYNC]', log);
+    syncLogs.push({ type: 'stdout', message: log, timestamp: new Date() });
+    // Keep only last 100 logs to prevent memory issues
+    if (syncLogs.length > 100) {
+      syncLogs.shift();
+    }
+  });
+
+  syncProcess.stderr.on('data', (data) => {
+    const log = data.toString();
+    console.error('[SYNC ERROR]', log);
+    syncLogs.push({ type: 'stderr', message: log, timestamp: new Date() });
+    // Keep only last 100 logs to prevent memory issues
+    if (syncLogs.length > 100) {
+      syncLogs.shift();
+    }
+  });
+
+  syncProcess.on('close', (code) => {
+    syncInProgress = false;
+    syncProcess = null;
+    const duration = Date.now() - syncStartTime;
+    console.log(`Historical sync completed with code ${code} in ${duration}ms`);
+    syncLogs.push({ 
+      type: 'complete', 
+      message: `Sync completed with code ${code}`, 
+      duration,
+      timestamp: new Date() 
+    });
+  });
 
   res.json({ 
     message: 'Historical sync started',
-    startTime: syncStartTime,
-    autoRestart: autoRestartEnabled,
-    note: autoRestartEnabled 
-      ? `Auto-restart enabled (max ${MAX_RESTART_ATTEMPTS} attempts)`
-      : 'Auto-restart disabled'
+    startTime: syncStartTime
   });
 });
 
-// Enhanced status endpoint to show auto-restart info
-app.get('/api/admin/sync-status', async (req, res) => {
+// Endpoint to check sync status
+app.get('/api/admin/sync-status', (req, res) => {
+  // Simple authentication
   const adminToken = req.headers['x-admin-token'];
   if (adminToken !== process.env.ADMIN_TOKEN) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
-
-  // Get checkpoint info from database
-  let checkpointInfo = null;
-  try {
-    checkpointInfo = await new Promise((resolve) => {
-      db.get(
-        `SELECT 
-          (SELECT value FROM metadata WHERE key = 'historical_sync_checkpoint') as checkpoint,
-          (SELECT value FROM metadata WHERE key = 'deployment_block') as deployment_block`,
-        (err, row) => {
-          resolve(row || {});
-        }
-      );
-    });
-  } catch (err) {
-    console.error('Error fetching checkpoint info:', err);
-  }
-
-  // Get current database stats
-  let dbStats = null;
-  try {
-    dbStats = await new Promise((resolve) => {
-      db.get(
-        `SELECT 
-          COUNT(*) as total_burns,
-          MIN(block_number) as min_block,
-          MAX(block_number) as max_block,
-          COUNT(DISTINCT from_address) as unique_addresses`,
-        (err, row) => {
-          resolve(row || {});
-        }
-      );
-    });
-  } catch (err) {
-    console.error('Error fetching db stats:', err);
-  }
-
-  // Find the latest progress log
-  const progressLogs = syncLogs.filter(log => log.type === 'progress');
-  const latestProgress = progressLogs[progressLogs.length - 1];
-
-  const responseData = {
-    status: syncInProgress ? 'running' : 'idle',
-    autoRestart: {
-      enabled: autoRestartEnabled,
-      attempts: restartAttempts,
-      maxAttempts: MAX_RESTART_ATTEMPTS
-    },
-    checkpoint: {
-      lastCheckpoint: checkpointInfo?.checkpoint || '0',
-      deploymentBlock: checkpointInfo?.deployment_block || 'unknown',
-      percentageComplete: latestProgress ? latestProgress.percentage : '0'
-    },
-    databaseStats: dbStats,
-    recentLogs: syncLogs.slice(-30)
-  };
 
   if (syncInProgress) {
-    responseData.startTime = syncStartTime;
-    responseData.duration = Date.now() - syncStartTime;
-    responseData.currentProgress = latestProgress || null;
-    responseData.processInfo = {
-      pid: syncProcess?.pid || null,
-      uptime: syncStartTime ? ((Date.now() - syncStartTime) / 1000).toFixed(0) + ' seconds' : null
-    };
-  } else {
-    responseData.lastRunTime = syncStartTime;
-    responseData.lastRunDuration = syncStartTime ? Date.now() - syncStartTime : null;
-    responseData.checkpoint.canResume = checkpointInfo?.checkpoint && 
-      checkpointInfo.checkpoint !== checkpointInfo.deployment_block;
-  }
-
-  res.json(responseData);
-});
-
-// Endpoint to toggle auto-restart
-app.post('/api/admin/sync-autorestart', (req, res) => {
-  const adminToken = req.headers['x-admin-token'];
-  if (adminToken !== process.env.ADMIN_TOKEN) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
-
-  const { enabled } = req.body;
-  autoRestartEnabled = enabled === true;
-  
-  if (!autoRestartEnabled && restartTimeout) {
-    clearTimeout(restartTimeout);
-    restartTimeout = null;
-  }
-
-  res.json({ 
-    message: `Auto-restart ${autoRestartEnabled ? 'enabled' : 'disabled'}`,
-    autoRestart: autoRestartEnabled
-  });
-});
-
-// Add a monitoring endpoint that can be called by external services
-app.get('/api/admin/sync-monitor', async (req, res) => {
-  const adminToken = req.headers['x-admin-token'];
-  if (adminToken !== process.env.ADMIN_TOKEN) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
-
-  // Check if sync should be running but isn't
-  const checkpoint = await new Promise((resolve) => {
-    db.get(
-      `SELECT 
-        (SELECT value FROM metadata WHERE key = 'historical_sync_checkpoint') as checkpoint,
-        (SELECT value FROM metadata WHERE key = 'deployment_block') as deployment_block`,
-      (err, row) => resolve(row || {})
-    );
-  });
-
-  const needsSync = checkpoint.checkpoint && 
-    parseInt(checkpoint.checkpoint) < parseInt(checkpoint.deployment_block);
-
-  if (needsSync && !syncInProgress) {
-    // Sync needed but not running
     res.json({
-      status: 'needs_restart',
-      syncInProgress: false,
-      checkpoint: checkpoint.checkpoint,
-      deploymentBlock: checkpoint.deployment_block,
-      message: 'Sync is incomplete but not running'
+      status: 'running',
+      startTime: syncStartTime,
+      duration: Date.now() - syncStartTime,
+      recentLogs: syncLogs.slice(-20) // Last 20 log entries
     });
   } else {
     res.json({
-      status: syncInProgress ? 'running' : 'complete',
-      syncInProgress,
-      checkpoint: checkpoint.checkpoint,
-      deploymentBlock: checkpoint.deployment_block,
-      autoRestart: autoRestartEnabled
+      status: 'idle',
+      lastRunTime: syncStartTime,
+      lastRunDuration: syncStartTime ? Date.now() - syncStartTime : null,
+      recentLogs: syncLogs.slice(-20)
     });
   }
 });
 
-// Endpoint to gracefully stop sync
+// Endpoint to stop sync if needed
 app.post('/api/admin/sync-stop', (req, res) => {
   const adminToken = req.headers['x-admin-token'];
   if (adminToken !== process.env.ADMIN_TOKEN) {
@@ -1285,48 +1030,10 @@ app.post('/api/admin/sync-stop', (req, res) => {
     return res.status(400).json({ error: 'No sync in progress' });
   }
 
-  // Send SIGTERM for graceful shutdown (will save checkpoint)
-  console.log('Sending SIGTERM to sync process for graceful shutdown...');
   syncProcess.kill('SIGTERM');
   syncInProgress = false;
   
-  res.json({ 
-    message: 'Sync process terminating gracefully',
-    note: 'Progress will be saved and can be resumed from checkpoint'
-  });
-});
-
-// New endpoint to clear sync checkpoint and start fresh
-app.post('/api/admin/sync-reset', async (req, res) => {
-  const adminToken = req.headers['x-admin-token'];
-  if (adminToken !== process.env.ADMIN_TOKEN) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
-
-  if (syncInProgress) {
-    return res.status(409).json({ 
-      error: 'Cannot reset while sync is in progress'
-    });
-  }
-
-  try {
-    await new Promise((resolve, reject) => {
-      db.run(
-        `DELETE FROM metadata WHERE key = 'historical_sync_checkpoint'`,
-        (err) => {
-          if (err) reject(err);
-          else resolve();
-        }
-      );
-    });
-
-    res.json({ 
-      message: 'Sync checkpoint cleared',
-      note: 'Next sync will start from block 0'
-    });
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to clear checkpoint: ' + err.message });
-  }
+  res.json({ message: 'Sync process terminated' });
 });
 
 // Get count of addresses with 100+ transactions
