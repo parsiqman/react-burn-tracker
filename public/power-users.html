@@ -1,0 +1,996 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Power Users Analysis - REACT Burn Tracker</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary: #FF6B6B;
+            --secondary: #4ECDC4;
+            --dark: #0A0E27;
+            --darker: #060817;
+            --light: #F7F9FC;
+            --success: #51CF66;
+            --warning: #FFD93D;
+            --purple: #764ba2;
+            --orange: #FFA502;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--darker);
+            color: var(--light);
+            min-height: 100vh;
+        }
+
+        /* Header */
+        .header {
+            background: rgba(10, 14, 39, 0.95);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header-content {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 1.5rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .logo-icon {
+            width: 48px;
+            height: 48px;
+            background: linear-gradient(135deg, #FF6B6B 0%, #FFA502 100%);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 1.5rem;
+        }
+
+        .logo-text h1 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #FF6B6B 0%, #FFA502 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .nav-link {
+            color: var(--secondary);
+            text-decoration: none;
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+        }
+
+        .nav-link:hover {
+            background: rgba(78, 205, 196, 0.1);
+        }
+
+        /* Container */
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        /* Overview Cards */
+        .overview-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .overview-card {
+            background: rgba(26, 30, 58, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 1.5rem;
+            text-align: center;
+        }
+
+        .overview-value {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: var(--secondary);
+            margin-bottom: 0.5rem;
+        }
+
+        .overview-label {
+            font-size: 0.875rem;
+            color: rgba(255, 255, 255, 0.7);
+        }
+
+        /* Filters */
+        .filters {
+            background: rgba(26, 30, 58, 0.4);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .filter-group {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .filter-label {
+            font-size: 0.875rem;
+            color: rgba(255, 255, 255, 0.7);
+        }
+
+        .filter-input {
+            padding: 0.5rem;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 6px;
+            color: white;
+            min-width: 120px;
+        }
+
+        .filter-btn {
+            padding: 0.5rem 1.5rem;
+            background: var(--secondary);
+            border: none;
+            border-radius: 6px;
+            color: var(--dark);
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .filter-btn:hover {
+            background: #3db8b0;
+        }
+
+        /* Power Users Table */
+        .power-users-section {
+            background: rgba(26, 30, 58, 0.4);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+        }
+
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+        }
+
+        .section-title {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: var(--secondary);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th {
+            text-align: left;
+            padding: 1rem;
+            font-size: 0.875rem;
+            color: rgba(255, 255, 255, 0.7);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        td {
+            padding: 1rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .address-cell {
+            font-family: 'Courier New', monospace;
+            color: var(--secondary);
+            cursor: pointer;
+        }
+
+        .address-cell:hover {
+            color: var(--accent);
+        }
+
+        .type-badge {
+            display: inline-block;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            margin-right: 0.25rem;
+            margin-bottom: 0.25rem;
+        }
+
+        .type-badge.transfer {
+            background: rgba(78, 205, 196, 0.2);
+            color: var(--secondary);
+        }
+
+        .type-badge.contract {
+            background: rgba(255, 233, 109, 0.2);
+            color: #FFE66D;
+        }
+
+        .type-badge.system {
+            background: rgba(255, 165, 2, 0.2);
+            color: var(--orange);
+        }
+
+        .type-badge.cross-chain {
+            background: rgba(0, 255, 0, 0.2);
+            color: #00ff00;
+        }
+
+        .activity-pattern {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .activity-bar {
+            display: flex;
+            height: 20px;
+            border-radius: 4px;
+            overflow: hidden;
+            flex: 1;
+            max-width: 200px;
+        }
+
+        .activity-segment {
+            height: 100%;
+            position: relative;
+        }
+
+        .activity-segment:hover::after {
+            content: attr(data-tooltip);
+            position: absolute;
+            bottom: 25px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            white-space: nowrap;
+            z-index: 10;
+        }
+
+        /* User Detail Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 1000;
+            overflow-y: auto;
+        }
+
+        .modal.show {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-content {
+            background: var(--dark);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 16px;
+            padding: 2rem;
+            max-width: 900px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+        }
+
+        .modal-close {
+            background: transparent;
+            border: none;
+            color: var(--light);
+            font-size: 1.5rem;
+            cursor: pointer;
+        }
+
+        .detail-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .detail-card {
+            background: rgba(26, 30, 58, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 1rem;
+        }
+
+        .detail-value {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: var(--secondary);
+        }
+
+        .detail-label {
+            font-size: 0.75rem;
+            color: rgba(255, 255, 255, 0.7);
+            margin-top: 0.25rem;
+        }
+
+        .chart-container {
+            position: relative;
+            height: 300px;
+            margin-bottom: 2rem;
+        }
+
+        /* Behavior Tags */
+        .behavior-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-top: 1rem;
+        }
+
+        .behavior-tag {
+            padding: 0.5rem 1rem;
+            background: rgba(255, 107, 107, 0.1);
+            border: 1px solid rgba(255, 107, 107, 0.3);
+            border-radius: 20px;
+            font-size: 0.875rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .behavior-tag.dex {
+            background: rgba(78, 205, 196, 0.1);
+            border-color: rgba(78, 205, 196, 0.3);
+        }
+
+        .behavior-tag.automated {
+            background: rgba(255, 233, 109, 0.1);
+            border-color: rgba(255, 233, 109, 0.3);
+        }
+
+        .behavior-tag.cross-chain {
+            background: rgba(0, 255, 0, 0.1);
+            border-color: rgba(0, 255, 0, 0.3);
+        }
+
+        /* Loading State */
+        .loading {
+            text-align: center;
+            padding: 4rem;
+        }
+
+        .loading-spinner {
+            width: 60px;
+            height: 60px;
+            border: 4px solid rgba(255, 255, 255, 0.1);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 2rem;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .container {
+                padding: 1rem;
+            }
+
+            .overview-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .filters {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .modal-content {
+                width: 95%;
+                padding: 1rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="header-content">
+            <div class="logo">
+                <div class="logo-icon">⚡</div>
+                <div class="logo-text">
+                    <h1>Power Users Analysis</h1>
+                    <p>REACT Burn Tracker</p>
+                </div>
+            </div>
+            <nav>
+                <a href="/" class="nav-link">← Back to Dashboard</a>
+            </nav>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <div class="container">
+        <!-- Loading State -->
+        <div id="loadingState" class="loading">
+            <div class="loading-spinner"></div>
+            <p>Analyzing power user behavior...</p>
+        </div>
+
+        <!-- Main Content (hidden initially) -->
+        <div id="mainContent" style="display: none;">
+            <!-- Overview Cards -->
+            <div class="overview-grid">
+                <div class="overview-card">
+                    <div class="overview-value" id="totalPowerUsers">-</div>
+                    <div class="overview-label">Power Users (100+ txs)</div>
+                </div>
+                <div class="overview-card">
+                    <div class="overview-value" id="totalBurnedByPower">-</div>
+                    <div class="overview-label">REACT Burned by Power Users</div>
+                </div>
+                <div class="overview-card">
+                    <div class="overview-value" id="percentOfActivity">-</div>
+                    <div class="overview-label">% of Total Network Activity</div>
+                </div>
+                <div class="overview-card">
+                    <div class="overview-value" id="avgTxPerPower">-</div>
+                    <div class="overview-label">Avg Transactions per Power User</div>
+                </div>
+            </div>
+
+            <!-- Filters -->
+            <div class="filters">
+                <div class="filter-group">
+                    <span class="filter-label">Min Transactions:</span>
+                    <input type="number" id="minTxFilter" class="filter-input" value="100" min="10">
+                </div>
+                <div class="filter-group">
+                    <span class="filter-label">Sort By:</span>
+                    <select id="sortBy" class="filter-input">
+                        <option value="tx_count">Transaction Count</option>
+                        <option value="total_burned">Total Burned</option>
+                        <option value="avg_burn">Average Burn</option>
+                        <option value="first_seen">First Activity</option>
+                        <option value="last_seen">Recent Activity</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <span class="filter-label">Activity Type:</span>
+                    <select id="activityFilter" class="filter-input">
+                        <option value="all">All Users</option>
+                        <option value="automated">Automated/Bots</option>
+                        <option value="dex">DEX Traders</option>
+                        <option value="cross-chain">Cross-Chain Users</option>
+                        <option value="contracts">Contract Deployers</option>
+                    </select>
+                </div>
+                <button class="filter-btn" onclick="applyFilters()">Apply Filters</button>
+            </div>
+
+            <!-- Power Users Table -->
+            <div class="power-users-section">
+                <div class="section-header">
+                    <h2 class="section-title">Top Power Users</h2>
+                    <span id="userCount" style="color: rgba(255, 255, 255, 0.7);"></span>
+                </div>
+                
+                <div style="overflow-x: auto;">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Rank</th>
+                                <th>Address</th>
+                                <th>Transactions</th>
+                                <th>Total Burned</th>
+                                <th>Activity Pattern</th>
+                                <th>Behavior Tags</th>
+                                <th>First/Last Seen</th>
+                            </tr>
+                        </thead>
+                        <tbody id="powerUsersTable">
+                            <!-- Populated by JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Activity Distribution Charts -->
+            <div class="power-users-section">
+                <h2 class="section-title">Activity Distribution</h2>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem;">
+                    <div>
+                        <h3 style="margin-bottom: 1rem; font-size: 1rem;">Transaction Types</h3>
+                        <div class="chart-container">
+                            <canvas id="typeDistributionChart"></canvas>
+                        </div>
+                    </div>
+                    <div>
+                        <h3 style="margin-bottom: 1rem; font-size: 1rem;">Time Distribution</h3>
+                        <div class="chart-container">
+                            <canvas id="timeDistributionChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- User Detail Modal -->
+    <div id="userModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modalTitle">User Details</h2>
+                <button class="modal-close" onclick="closeModal()">×</button>
+            </div>
+            
+            <div class="detail-grid">
+                <div class="detail-card">
+                    <div class="detail-value" id="modalTxCount">-</div>
+                    <div class="detail-label">Total Transactions</div>
+                </div>
+                <div class="detail-card">
+                    <div class="detail-value" id="modalTotalBurned">-</div>
+                    <div class="detail-label">Total REACT Burned</div>
+                </div>
+                <div class="detail-card">
+                    <div class="detail-value" id="modalAvgBurn">-</div>
+                    <div class="detail-label">Average Burn</div>
+                </div>
+                <div class="detail-card">
+                    <div class="detail-value" id="modalFrequency">-</div>
+                    <div class="detail-label">Tx Frequency</div>
+                </div>
+            </div>
+
+            <h3 style="margin-bottom: 1rem;">Transaction Type Breakdown</h3>
+            <div class="chart-container">
+                <canvas id="userTypeChart"></canvas>
+            </div>
+
+            <h3 style="margin-bottom: 1rem;">Detected Behaviors</h3>
+            <div id="userBehaviors" class="behavior-tags">
+                <!-- Populated by JavaScript -->
+            </div>
+
+            <h3 style="margin-bottom: 1rem; margin-top: 2rem;">Recent Transactions</h3>
+            <div style="overflow-x: auto;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Transaction Hash</th>
+                            <th>Type</th>
+                            <th>Amount</th>
+                            <th>Time</th>
+                        </tr>
+                    </thead>
+                    <tbody id="userTransactions">
+                        <!-- Populated by JavaScript -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = window.location.origin;
+        let powerUsersData = [];
+        let typeChart = null;
+        let timeChart = null;
+        let userChart = null;
+
+        // Format functions
+        function formatAddress(address) {
+            if (!address) return '';
+            return `${address.substring(0, 6)}...${address.substring(38)}`;
+        }
+
+        function formatNumber(num) {
+            if (num === 0) return '0';
+            if (num < 0.000001) return num.toExponential(2);
+            if (num < 0.01) return num.toFixed(8);
+            if (num < 1) return num.toFixed(6);
+            if (num >= 1e9) return (num / 1e9).toFixed(2) + 'B';
+            if (num >= 1e6) return (num / 1e6).toFixed(2) + 'M';
+            if (num >= 1e3) return (num / 1e3).toFixed(2) + 'K';
+            return num.toLocaleString('en-US', { maximumFractionDigits: 2 });
+        }
+
+        function formatTime(timestamp) {
+            const date = new Date(timestamp * 1000);
+            return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        }
+
+        // Detect user behavior patterns
+        function detectBehaviors(user) {
+            const behaviors = [];
+            
+            // High frequency trader
+            if (user.tx_frequency && user.tx_frequency < 3600) {
+                behaviors.push({ type: 'automated', label: '🤖 Bot/Automated', desc: 'High frequency activity' });
+            }
+            
+            // DEX user
+            if (user.contract_interactions > user.tx_count * 0.5) {
+                behaviors.push({ type: 'dex', label: '💱 DEX Trader', desc: 'Frequent contract interactions' });
+            }
+            
+            // Cross-chain user
+            if (user.cross_chain_count > 0) {
+                behaviors.push({ type: 'cross-chain', label: '🌐 Cross-Chain', desc: `${user.cross_chain_count} cross-chain txs` });
+            }
+            
+            // System contract user
+            if (user.system_contract_count > user.tx_count * 0.3) {
+                behaviors.push({ type: 'system', label: '⚡ RSC User', desc: 'Heavy Reactive Smart Contract usage' });
+            }
+            
+            // Whale
+            if (user.total_burned > 100) {
+                behaviors.push({ type: 'whale', label: '🐋 Whale', desc: 'High burn volume' });
+            }
+            
+            // Early adopter
+            const oneMonthAgo = Date.now() / 1000 - (30 * 24 * 60 * 60);
+            if (user.first_seen < oneMonthAgo) {
+                behaviors.push({ type: 'early', label: '🌟 Early Adopter', desc: 'Active for 30+ days' });
+            }
+            
+            return behaviors;
+        }
+
+        // Create activity pattern visualization
+        function createActivityBar(breakdown) {
+            const total = Object.values(breakdown).reduce((sum, val) => sum + val, 0);
+            const segments = [];
+            const colors = {
+                'gas_fee_transfer': '#4ECDC4',
+                'gas_fee_contract': '#FFE66D',
+                'system_contract_payment': '#FFA502',
+                'cross_chain': '#00ff00',
+                'gas_fee': '#764ba2'
+            };
+            
+            let html = '<div class="activity-bar">';
+            for (const [type, count] of Object.entries(breakdown)) {
+                const percent = (count / total * 100).toFixed(1);
+                const color = colors[type] || '#666';
+                html += `<div class="activity-segment" style="width: ${percent}%; background: ${color};" data-tooltip="${type}: ${count} (${percent}%)"></div>`;
+            }
+            html += '</div>';
+            
+            return html;
+        }
+
+        // Load power users data
+        async function loadPowerUsers(minTx = 100, sortBy = 'tx_count', activityFilter = 'all') {
+            try {
+                const response = await fetch(`${API_URL}/api/power-users/detailed?threshold=${minTx}&sort=${sortBy}&filter=${activityFilter}`);
+                const data = await response.json();
+                
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+
+                powerUsersData = data.users;
+
+                // Update overview cards
+                document.getElementById('totalPowerUsers').textContent = data.summary.totalPowerUsers;
+                document.getElementById('totalBurnedByPower').textContent = formatNumber(data.summary.totalBurnedByPowerUsers);
+                document.getElementById('percentOfActivity').textContent = data.summary.percentOfTotalActivity.toFixed(1) + '%';
+                document.getElementById('avgTxPerPower').textContent = formatNumber(data.summary.avgTransactionsPerPowerUser);
+
+                // Update user count
+                document.getElementById('userCount').textContent = `Showing ${data.users.length} users`;
+
+                // Populate table
+                const tbody = document.getElementById('powerUsersTable');
+                tbody.innerHTML = data.users.map((user, index) => {
+                    const behaviors = detectBehaviors(user);
+                    const behaviorHtml = behaviors.map(b => 
+                        `<span class="type-badge ${b.type}" title="${b.desc}">${b.label}</span>`
+                    ).join('');
+
+                    return `
+                        <tr>
+                            <td>${index + 1}</td>
+                            <td class="address-cell" onclick="showUserDetails('${user.address}')">${formatAddress(user.address)}</td>
+                            <td>${user.tx_count.toLocaleString()}</td>
+                            <td>${formatNumber(user.total_burned)} REACT</td>
+                            <td>${createActivityBar(user.type_breakdown)}</td>
+                            <td>${behaviorHtml}</td>
+                            <td>
+                                <div style="font-size: 0.875rem;">
+                                    <div>First: ${formatTime(user.first_seen)}</div>
+                                    <div style="color: rgba(255,255,255,0.5);">Last: ${formatTime(user.last_seen)}</div>
+                                </div>
+                            </td>
+                        </tr>
+                    `;
+                }).join('');
+
+                // Update charts
+                updateCharts(data);
+
+                // Show content
+                document.getElementById('loadingState').style.display = 'none';
+                document.getElementById('mainContent').style.display = 'block';
+
+            } catch (error) {
+                console.error('Error loading power users:', error);
+                document.getElementById('loadingState').innerHTML = 
+                    '<p style="color: #FF6B6B;">Error loading power users data. Please try again.</p>';
+            }
+        }
+
+        // Update charts
+        function updateCharts(data) {
+            // Aggregate type distribution
+            const typeAggregation = {};
+            data.users.forEach(user => {
+                Object.entries(user.type_breakdown).forEach(([type, count]) => {
+                    typeAggregation[type] = (typeAggregation[type] || 0) + count;
+                });
+            });
+
+            // Type distribution chart
+            const ctx1 = document.getElementById('typeDistributionChart').getContext('2d');
+            if (typeChart) typeChart.destroy();
+            
+            typeChart = new Chart(ctx1, {
+                type: 'doughnut',
+                data: {
+                    labels: Object.keys(typeAggregation).map(type => {
+                        const labels = {
+                            'gas_fee_transfer': 'Simple Transfers',
+                            'gas_fee_contract': 'Contract Calls',
+                            'system_contract_payment': 'RSC Payments',
+                            'cross_chain_transfer': 'Cross-Chain',
+                            'gas_fee': 'Other Gas Fees'
+                        };
+                        return labels[type] || type;
+                    }),
+                    datasets: [{
+                        data: Object.values(typeAggregation),
+                        backgroundColor: [
+                            '#4ECDC4',
+                            '#FFE66D',
+                            '#FFA502',
+                            '#00ff00',
+                            '#764ba2',
+                            '#FF6B6B'
+                        ]
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: { color: '#F7F9FC' }
+                        }
+                    }
+                }
+            });
+
+            // Time distribution chart
+            const ctx2 = document.getElementById('timeDistributionChart').getContext('2d');
+            if (timeChart) timeChart.destroy();
+
+            // Calculate hourly distribution
+            const hourlyActivity = new Array(24).fill(0);
+            data.users.forEach(user => {
+                if (user.hourly_pattern) {
+                    user.hourly_pattern.forEach((count, hour) => {
+                        hourlyActivity[hour] += count;
+                    });
+                }
+            });
+
+            timeChart = new Chart(ctx2, {
+                type: 'line',
+                data: {
+                    labels: Array.from({length: 24}, (_, i) => `${i}:00`),
+                    datasets: [{
+                        label: 'Activity by Hour',
+                        data: hourlyActivity,
+                        borderColor: '#FF6B6B',
+                        backgroundColor: 'rgba(255, 107, 107, 0.1)',
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        x: {
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                            ticks: { color: '#F7F9FC' }
+                        },
+                        y: {
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                            ticks: { 
+                                color: '#F7F9FC',
+                                callback: function(value) {
+                                    return formatNumber(value);
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Show user details modal
+        async function showUserDetails(address) {
+            const modal = document.getElementById('userModal');
+            modal.classList.add('show');
+
+            // Find user in local data
+            const user = powerUsersData.find(u => u.address === address);
+            if (!user) return;
+
+            // Update modal header
+            document.getElementById('modalTitle').textContent = `User: ${formatAddress(address)}`;
+
+            // Update stats
+            document.getElementById('modalTxCount').textContent = user.tx_count.toLocaleString();
+            document.getElementById('modalTotalBurned').textContent = formatNumber(user.total_burned);
+            document.getElementById('modalAvgBurn').textContent = formatNumber(user.avg_burn_per_tx);
+            document.getElementById('modalFrequency').textContent = user.tx_frequency < 3600 ? 
+                `${Math.round(user.tx_frequency / 60)} min` : 
+                `${Math.round(user.tx_frequency / 3600)} hours`;
+
+            // Show behaviors
+            const behaviors = detectBehaviors(user);
+            document.getElementById('userBehaviors').innerHTML = behaviors.map(b => 
+                `<div class="behavior-tag ${b.type}">${b.label}</div>`
+            ).join('');
+
+            // Update user type chart
+            const ctx = document.getElementById('userTypeChart').getContext('2d');
+            if (userChart) userChart.destroy();
+
+            userChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: Object.keys(user.type_breakdown).map(type => {
+                        const labels = {
+                            'gas_fee_transfer': 'Transfers',
+                            'gas_fee_contract': 'Contracts',
+                            'system_contract_payment': 'RSC',
+                            'cross_chain_transfer': 'Cross-Chain',
+                            'gas_fee': 'Other'
+                        };
+                        return labels[type] || type;
+                    }),
+                    datasets: [{
+                        label: 'Transactions',
+                        data: Object.values(user.type_breakdown),
+                        backgroundColor: '#4ECDC4'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        x: {
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                            ticks: { color: '#F7F9FC' }
+                        },
+                        y: {
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                            ticks: { color: '#F7F9FC' }
+                        }
+                    }
+                }
+            });
+
+            // Load recent transactions
+            try {
+                const txResponse = await fetch(`${API_URL}/api/power-users/${address}/transactions?limit=10`);
+                const transactions = await txResponse.json();
+
+                document.getElementById('userTransactions').innerHTML = transactions.map(tx => `
+                    <tr>
+                        <td style="font-family: monospace; font-size: 0.875rem;">
+                            <a href="https://reactscan.net/tx/${tx.tx_hash}" target="_blank" style="color: #4ECDC4;">
+                                ${tx.tx_hash.substring(0, 10)}...
+                            </a>
+                        </td>
+                        <td><span class="type-badge ${tx.burn_type.includes('transfer') ? 'transfer' : 'contract'}">${tx.burn_type}</span></td>
+                        <td>${formatNumber(parseFloat(tx.amount))} REACT</td>
+                        <td>${new Date(tx.timestamp * 1000).toLocaleString()}</td>
+                    </tr>
+                `).join('');
+            } catch (error) {
+                console.error('Error loading user transactions:', error);
+            }
+        }
+
+        // Close modal
+        function closeModal() {
+            document.getElementById('userModal').classList.remove('show');
+        }
+
+        // Apply filters
+        function applyFilters() {
+            const minTx = document.getElementById('minTxFilter').value;
+            const sortBy = document.getElementById('sortBy').value;
+            const activityFilter = document.getElementById('activityFilter').value;
+            
+            loadPowerUsers(minTx, sortBy, activityFilter);
+        }
+
+        // Initialize on load
+        window.addEventListener('load', () => {
+            loadPowerUsers();
+        });
+
+        // Close modal on outside click
+        window.addEventListener('click', (e) => {
+            const modal = document.getElementById('userModal');
+            if (e.target === modal) {
+                closeModal();
+            }
+        });
+    </script>
+</body>
+</html>
