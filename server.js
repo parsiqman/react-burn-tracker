@@ -79,6 +79,16 @@ const CALLBACK_PROXIES = {
 // Create a reverse lookup for quick checking
 const ALL_CALLBACK_PROXIES = new Set(Object.values(CALLBACK_PROXIES).map(addr => addr.toLowerCase()));
 
+// Known addresses database for labeling
+const KNOWN_ADDRESSES = {
+  '0xaa24633108fd1d87371c55e6d7f4fa00cdeb26': {
+    label: 'RSC Automation Bot',
+    type: 'bot',
+    description: 'Reactive Smart Contract automation service'
+  },
+  // Add more known addresses as discovered
+};
+
 // Price fetching (you'll need to implement based on your price source)
 let currentPrice = 0.0234; // Default price
 async function updateTokenPrice() {
@@ -149,7 +159,8 @@ function initializeDatabase(callback) {
     // Create indexes
     db.run('CREATE INDEX IF NOT EXISTS idx_timestamp ON burns(timestamp)');
     db.run('CREATE INDEX IF NOT EXISTS idx_block ON burns(block_number)');
-    db.run('CREATE INDEX IF NOT EXISTS idx_burn_type ON burns(burn_type)', callback);
+    db.run('CREATE INDEX IF NOT EXISTS idx_burn_type ON burns(burn_type)');
+    db.run('CREATE INDEX IF NOT EXISTS idx_from_address ON burns(from_address)', callback);
   });
 }
 
@@ -270,6 +281,12 @@ async function processRegularTransaction(tx, block) {
         if (!crossChainMethods[methodSig] && methodSig !== '0x') {
           console.log(`Unknown method: ${methodSig} in tx ${tx.hash} to ${toAddress}`);
         }
+      }
+      
+      // Check for known addresses
+      const knownAddress = KNOWN_ADDRESSES[fromAddress];
+      if (knownAddress) {
+        txInfo = `[${knownAddress.label}]`;
       }
       
       // Special handling for the automated address we're seeing
@@ -1054,6 +1071,337 @@ app.get('/api/analysis/distribution', (req, res) => {
   );
 });
 
+// Get count of addresses with 100+ transactions
+app.get('/api/stats/active-addresses', (req, res) => {
+  const threshold = parseInt(req.query.threshold) || 100;
+  
+  db.get(
+    `SELECT COUNT(*) as active_addresses
+     FROM (
+       SELECT from_address, COUNT(*) as tx_count
+       FROM burns
+       GROUP BY from_address
+       HAVING tx_count >= ?
+     )`,
+    [threshold],
+    (err, row) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      
+      // Also get some additional interesting stats
+      db.all(
+        `SELECT from_address, COUNT(*) as tx_count, SUM(CAST(amount AS REAL)) as total_burned
+         FROM burns
+         GROUP BY from_address
+         HAVING tx_count >= ?
+         ORDER BY tx_count DESC
+         LIMIT 10`,
+        [threshold],
+        (err, topAddresses) => {
+          if (err) {
+            return res.status(500).json({ error: err.message });
+          }
+          
+          res.json({
+            activeAddresses: row.active_addresses || 0,
+            threshold: threshold,
+            topActiveAddresses: topAddresses || []
+          });
+        }
+      );
+    }
+  );
+});
+
+// NEW POWER USERS ENDPOINTS
+
+// Get detailed power users analysis
+app.get('/api/power-users/detailed', async (req, res) => {
+  const threshold = parseInt(req.query.threshold) || 100;
+  const sortBy = req.query.sort || 'tx_count';
+  const filter = req.query.filter || 'all';
+  
+  try {
+    // First get the power users with aggregated data
+    const powerUsersQuery = `
+      SELECT 
+        from_address as address,
+        COUNT(*) as tx_count,
+        SUM(CAST(amount AS REAL)) as total_burned,
+        AVG(CAST(amount AS REAL)) as avg_burn_per_tx,
+        MIN(timestamp) as first_seen,
+        MAX(timestamp) as last_seen,
+        COUNT(DISTINCT DATE(timestamp, 'unixepoch')) as active_days,
+        GROUP_CONCAT(DISTINCT burn_type) as burn_types,
+        SUM(CASE WHEN burn_type = 'gas_fee_transfer' THEN 1 ELSE 0 END) as transfer_count,
+        SUM(CASE WHEN burn_type = 'gas_fee_contract' THEN 1 ELSE 0 END) as contract_count,
+        SUM(CASE WHEN burn_type = 'system_contract_payment' THEN 1 ELSE 0 END) as system_contract_count,
+        SUM(CASE WHEN burn_type LIKE '%cross_chain%' THEN 1 ELSE 0 END) as cross_chain_count,
+        SUM(gas_used) as total_gas_used,
+        AVG(gas_used) as avg_gas_used
+      FROM burns
+      GROUP BY from_address
+      HAVING tx_count >= ?
+    `;
+    
+    db.all(powerUsersQuery, [threshold], async (err, users) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      
+      // Enhance user data with additional analysis
+      const enhancedUsers = await Promise.all(users.map(async (user) => {
+        // Calculate transaction frequency (average time between transactions)
+        const timeSpan = user.last_seen - user.first_seen;
+        const txFrequency = timeSpan > 0 ? timeSpan / user.tx_count : 0;
+        
+        // Get transaction type breakdown
+        const typeBreakdown = {};
+        
+        // Get detailed type counts
+        await new Promise((resolve) => {
+          db.all(
+            `SELECT burn_type, COUNT(*) as count 
+             FROM burns 
+             WHERE from_address = ? 
+             GROUP BY burn_type`,
+            [user.address],
+            (err, typeRows) => {
+              if (!err && typeRows) {
+                typeRows.forEach(row => {
+                  typeBreakdown[row.burn_type] = row.count;
+                });
+              }
+              resolve();
+            }
+          );
+        });
+        
+        // Get hourly activity pattern
+        const hourlyPattern = new Array(24).fill(0);
+        await new Promise((resolve) => {
+          db.all(
+            `SELECT strftime('%H', datetime(timestamp, 'unixepoch')) as hour, COUNT(*) as count
+             FROM burns
+             WHERE from_address = ?
+             GROUP BY hour`,
+            [user.address],
+            (err, hourRows) => {
+              if (!err && hourRows) {
+                hourRows.forEach(row => {
+                  hourlyPattern[parseInt(row.hour)] = row.count;
+                });
+              }
+              resolve();
+            }
+          );
+        });
+        
+        // Check known addresses
+        const knownInfo = KNOWN_ADDRESSES[user.address.toLowerCase()];
+        
+        // Analyze behavior patterns
+        const contractRatio = user.contract_count / user.tx_count;
+        const isAutomated = txFrequency < 3600 && user.tx_count > 500;
+        const isDexTrader = contractRatio > 0.5;
+        const isCrossChainUser = user.cross_chain_count > 0;
+        const isRscUser = user.system_contract_count > user.tx_count * 0.3;
+        
+        return {
+          ...user,
+          tx_frequency: txFrequency,
+          type_breakdown: typeBreakdown,
+          hourly_pattern: hourlyPattern,
+          known_label: knownInfo?.label || null,
+          known_type: knownInfo?.type || null,
+          contract_interactions: user.contract_count + user.system_contract_count,
+          behaviors: {
+            automated: isAutomated,
+            dex_trader: isDexTrader,
+            cross_chain: isCrossChainUser,
+            rsc_user: isRscUser
+          }
+        };
+      }));
+      
+      // Apply filtering
+      let filteredUsers = enhancedUsers;
+      if (filter !== 'all') {
+        filteredUsers = enhancedUsers.filter(user => {
+          switch(filter) {
+            case 'automated':
+              return user.behaviors.automated;
+            case 'dex':
+              return user.behaviors.dex_trader;
+            case 'cross-chain':
+              return user.behaviors.cross_chain;
+            case 'contracts':
+              return user.contract_interactions > user.tx_count * 0.5;
+            default:
+              return true;
+          }
+        });
+      }
+      
+      // Apply sorting
+      filteredUsers.sort((a, b) => {
+        switch(sortBy) {
+          case 'total_burned':
+            return b.total_burned - a.total_burned;
+          case 'avg_burn':
+            return b.avg_burn_per_tx - a.avg_burn_per_tx;
+          case 'first_seen':
+            return a.first_seen - b.first_seen;
+          case 'last_seen':
+            return b.last_seen - a.last_seen;
+          case 'tx_count':
+          default:
+            return b.tx_count - a.tx_count;
+        }
+      });
+      
+      // Calculate summary statistics
+      const totalPowerUsers = filteredUsers.length;
+      const totalBurnedByPowerUsers = filteredUsers.reduce((sum, user) => sum + user.total_burned, 0);
+      const totalTxByPowerUsers = filteredUsers.reduce((sum, user) => sum + user.tx_count, 0);
+      
+      // Get network totals for comparison
+      const networkTotals = await new Promise((resolve) => {
+        db.get(
+          `SELECT 
+            COUNT(*) as total_transactions,
+            SUM(CAST(amount AS REAL)) as total_burned
+           FROM burns`,
+          (err, row) => {
+            resolve(row || { total_transactions: 0, total_burned: 0 });
+          }
+        );
+      });
+      
+      const percentOfTotalActivity = networkTotals.total_transactions > 0 
+        ? (totalTxByPowerUsers / networkTotals.total_transactions) * 100 
+        : 0;
+        
+      const avgTransactionsPerPowerUser = totalPowerUsers > 0 
+        ? totalTxByPowerUsers / totalPowerUsers 
+        : 0;
+      
+      res.json({
+        users: filteredUsers,
+        summary: {
+          totalPowerUsers: totalPowerUsers,
+          totalBurnedByPowerUsers: totalBurnedByPowerUsers,
+          percentOfTotalActivity: percentOfTotalActivity,
+          avgTransactionsPerPowerUser: avgTransactionsPerPowerUser,
+          threshold: threshold,
+          filter: filter,
+          sortBy: sortBy
+        }
+      });
+    });
+  } catch (error) {
+    console.error('Error in power users analysis:', error);
+    res.status(500).json({ error: 'Failed to analyze power users' });
+  }
+});
+
+// Get specific user's recent transactions
+app.get('/api/power-users/:address/transactions', (req, res) => {
+  const address = req.params.address;
+  const limit = parseInt(req.query.limit) || 10;
+  
+  db.all(
+    `SELECT tx_hash, block_number, amount, timestamp, burn_type, gas_used
+     FROM burns
+     WHERE from_address = ?
+     ORDER BY timestamp DESC
+     LIMIT ?`,
+    [address, limit],
+    (err, rows) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      res.json(rows);
+    }
+  );
+});
+
+// Get power users behavior analysis
+app.get('/api/power-users/behaviors', async (req, res) => {
+  try {
+    // Analyze different behavior patterns
+    const behaviors = await new Promise((resolve) => {
+      db.all(
+        `SELECT 
+          from_address,
+          COUNT(*) as tx_count,
+          SUM(CAST(amount AS REAL)) as total_burned,
+          MIN(timestamp) as first_seen,
+          MAX(timestamp) as last_seen,
+          COUNT(DISTINCT DATE(timestamp, 'unixepoch')) as active_days,
+          SUM(CASE WHEN burn_type LIKE '%cross_chain%' THEN 1 ELSE 0 END) as cross_chain_count,
+          SUM(CASE WHEN burn_type = 'system_contract_payment' THEN 1 ELSE 0 END) as rsc_count,
+          SUM(CASE WHEN burn_type = 'gas_fee_contract' THEN 1 ELSE 0 END) as contract_count
+        FROM burns
+        GROUP BY from_address
+        HAVING tx_count >= 100`,
+        (err, rows) => {
+          if (err) {
+            resolve([]);
+            return;
+          }
+          
+          const analysis = {
+            bots: [],
+            dexTraders: [],
+            crossChainUsers: [],
+            rscUsers: [],
+            whales: []
+          };
+          
+          rows.forEach(user => {
+            const timeSpan = user.last_seen - user.first_seen;
+            const avgTimeBetweenTx = timeSpan / user.tx_count;
+            
+            // Bot detection
+            if (avgTimeBetweenTx < 3600 && user.tx_count > 500) {
+              analysis.bots.push(user.from_address);
+            }
+            
+            // DEX trader detection
+            if (user.contract_count > user.tx_count * 0.5) {
+              analysis.dexTraders.push(user.from_address);
+            }
+            
+            // Cross-chain user detection
+            if (user.cross_chain_count > 0) {
+              analysis.crossChainUsers.push(user.from_address);
+            }
+            
+            // RSC heavy user detection
+            if (user.rsc_count > user.tx_count * 0.3) {
+              analysis.rscUsers.push(user.from_address);
+            }
+            
+            // Whale detection
+            if (user.total_burned > 100) {
+              analysis.whales.push(user.from_address);
+            }
+          });
+          
+          resolve(analysis);
+        }
+      );
+    });
+    
+    res.json(behaviors);
+  } catch (error) {
+    console.error('Error analyzing behaviors:', error);
+    res.status(500).json({ error: 'Failed to analyze behaviors' });
+  }
+});
+
 // Admin endpoint to trigger historical sync
 app.post('/api/admin/sync-historical', (req, res) => {
   // Simple authentication - you should improve this!
@@ -1163,49 +1511,6 @@ app.post('/api/admin/sync-stop', (req, res) => {
   }
   
   res.json({ message: 'Sync process stopped' });
-});
-
-// Get count of addresses with 100+ transactions
-app.get('/api/stats/active-addresses', (req, res) => {
-  const threshold = parseInt(req.query.threshold) || 100;
-  
-  db.get(
-    `SELECT COUNT(*) as active_addresses
-     FROM (
-       SELECT from_address, COUNT(*) as tx_count
-       FROM burns
-       GROUP BY from_address
-       HAVING tx_count >= ?
-     )`,
-    [threshold],
-    (err, row) => {
-      if (err) {
-        return res.status(500).json({ error: err.message });
-      }
-      
-      // Also get some additional interesting stats
-      db.all(
-        `SELECT from_address, COUNT(*) as tx_count, SUM(CAST(amount AS REAL)) as total_burned
-         FROM burns
-         GROUP BY from_address
-         HAVING tx_count >= ?
-         ORDER BY tx_count DESC
-         LIMIT 10`,
-        [threshold],
-        (err, topAddresses) => {
-          if (err) {
-            return res.status(500).json({ error: err.message });
-          }
-          
-          res.json({
-            activeAddresses: row.active_addresses || 0,
-            threshold: threshold,
-            topActiveAddresses: topAddresses || []
-          });
-        }
-      );
-    }
-  );
 });
 
 // Health check
