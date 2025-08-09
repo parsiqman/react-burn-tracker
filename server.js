@@ -9,7 +9,7 @@ const fs = require('fs');
 require('dotenv').config();
 
 // Import HolderTracker
-const HolderTracker = require('./holder-tracker');
+const HolderTracker = require('./scripts/holder-tracker');
 
 // Check if we should run historical sync
 if (process.env.RUN_HISTORICAL_SYNC === 'true') {
