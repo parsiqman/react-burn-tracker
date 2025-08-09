@@ -1,4 +1,4 @@
-// server.js - Production Backend for REACT Burn Tracker
+// server.js - Production Backend for REACT Burn Tracker with Holder Analytics
 const express = require('express');
 const cors = require('cors');
 const { Web3 } = require('web3');
@@ -7,6 +7,9 @@ const WebSocket = require('ws');
 const path = require('path');
 const fs = require('fs');
 require('dotenv').config();
+
+// Import HolderTracker
+const HolderTracker = require('./holder-tracker');
 
 // Check if we should run historical sync
 if (process.env.RUN_HISTORICAL_SYNC === 'true') {
@@ -52,6 +55,9 @@ let syncLogs = [];
 let syncStats = null;
 let syncInterval = null;
 let syncPaused = false;
+
+// Holder tracker instance
+let holderTracker = null;
 
 // Important Reactive Network addresses
 const REACT_TOKEN_ADDRESS = process.env.REACT_TOKEN_ADDRESS || '0x0000000000000000000000000000000000fffFfF';
@@ -129,7 +135,7 @@ function broadcast(data) {
   });
 }
 
-// Initialize tables with proper callbacks
+// Initialize tables with proper callbacks - UPDATED WITH HOLDER TABLES
 function initializeDatabase(callback) {
   db.serialize(() => {
     // Create burns table - now with burn_type field
@@ -156,11 +162,122 @@ function initializeDatabase(callback) {
       )
     `);
 
-    // Create indexes
+    // Create indexes for burns
     db.run('CREATE INDEX IF NOT EXISTS idx_timestamp ON burns(timestamp)');
     db.run('CREATE INDEX IF NOT EXISTS idx_block ON burns(block_number)');
     db.run('CREATE INDEX IF NOT EXISTS idx_burn_type ON burns(burn_type)');
-    db.run('CREATE INDEX IF NOT EXISTS idx_from_address ON burns(from_address)', callback);
+    db.run('CREATE INDEX IF NOT EXISTS idx_from_address ON burns(from_address)');
+
+    // Create holders table
+    db.run(`
+      CREATE TABLE IF NOT EXISTS holders (
+        address TEXT PRIMARY KEY,
+        balance TEXT NOT NULL,
+        balance_numeric REAL NOT NULL,
+        first_seen_block INTEGER,
+        first_seen_timestamp INTEGER,
+        last_updated_block INTEGER,
+        last_updated_timestamp INTEGER,
+        tx_count INTEGER DEFAULT 0,
+        is_contract BOOLEAN DEFAULT 0,
+        label TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Create holder_history table
+    db.run(`
+      CREATE TABLE IF NOT EXISTS holder_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp INTEGER NOT NULL,
+        block_number INTEGER NOT NULL,
+        total_holders INTEGER NOT NULL,
+        holders_above_1 INTEGER DEFAULT 0,
+        holders_above_10 INTEGER DEFAULT 0,
+        holders_above_100 INTEGER DEFAULT 0,
+        holders_above_1000 INTEGER DEFAULT 0,
+        holders_above_10000 INTEGER DEFAULT 0,
+        top_10_balance REAL DEFAULT 0,
+        top_50_balance REAL DEFAULT 0,
+        top_100_balance REAL DEFAULT 0,
+        total_supply REAL DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Create known_addresses table
+    db.run(`
+      CREATE TABLE IF NOT EXISTS known_addresses (
+        address TEXT PRIMARY KEY,
+        label TEXT NOT NULL,
+        category TEXT,
+        description TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Create indexes for holder tables
+    db.run('CREATE INDEX IF NOT EXISTS idx_balance_numeric ON holders(balance_numeric DESC)');
+    db.run('CREATE INDEX IF NOT EXISTS idx_tx_count ON holders(tx_count DESC)');
+    db.run('CREATE INDEX IF NOT EXISTS idx_last_updated ON holders(last_updated_timestamp)');
+    db.run('CREATE INDEX IF NOT EXISTS idx_is_contract ON holders(is_contract)');
+    db.run('CREATE INDEX IF NOT EXISTS idx_history_timestamp ON holder_history(timestamp DESC)');
+    db.run('CREATE INDEX IF NOT EXISTS idx_history_block ON holder_history(block_number DESC)', callback);
+  });
+}
+
+// Initialize holder tracker
+function initializeHolderTracker() {
+  holderTracker = new HolderTracker(db, web3);
+  holderTracker.initialize().then(() => {
+    console.log('Holder tracker initialized');
+    
+    // Update holder balances every hour
+    setInterval(async () => {
+      try {
+        console.log('Updating holder balances...');
+        const currentBlock = await web3.eth.getBlockNumber();
+        
+        // Get addresses that were active in recent blocks
+        const recentAddresses = await new Promise((resolve) => {
+          db.all(
+            'SELECT DISTINCT from_address FROM burns WHERE block_number > ?',
+            [currentBlock - 1000],
+            (err, rows) => {
+              resolve(rows ? rows.map(r => r.from_address) : []);
+            }
+          );
+        });
+        
+        // Quick update for recent active addresses
+        if (recentAddresses.length > 0) {
+          await holderTracker.quickUpdateActiveAddresses(recentAddresses);
+        }
+        
+        // Full scan every 6 hours
+        const lastFullScan = await new Promise((resolve) => {
+          db.get('SELECT value FROM metadata WHERE key = ?', ['last_full_holder_scan'], (err, row) => {
+            resolve(row ? parseInt(row.value) : 0);
+          });
+        });
+        
+        const sixHoursAgo = Math.floor(Date.now() / 1000) - (6 * 60 * 60);
+        if (lastFullScan < sixHoursAgo) {
+          await holderTracker.scanForHolders(holderTracker.lastScanBlock, currentBlock);
+          await holderTracker.saveHolderSnapshot(currentBlock);
+          
+          db.run(
+            'INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)',
+            ['last_full_holder_scan', Math.floor(Date.now() / 1000).toString()]
+          );
+        }
+      } catch (error) {
+        console.error('Error updating holders:', error);
+      }
+    }, 60 * 60 * 1000); // Every hour
+  }).catch(error => {
+    console.error('Error initializing holder tracker:', error);
   });
 }
 
@@ -481,15 +598,26 @@ async function pollBlocks() {
               console.log(`Processing block ${Number(block.number)} with ${block.transactions.length} transactions`);
               
               let totalBurnedInBlock = 0;
+              const activeAddresses = [];
               
               // Process regular transactions for gas fees
               for (const tx of block.transactions) {
                 const burned = await processRegularTransaction(tx, block);
                 totalBurnedInBlock += burned;
+                
+                // Collect active addresses for holder updates
+                if (tx.from) activeAddresses.push(tx.from.toLowerCase());
+                if (tx.to) activeAddresses.push(tx.to.toLowerCase());
               }
               
               // Track system contract events for RVM and callbacks
               await trackSystemContractEvents(block.number);
+              
+              // Update holder balances for active addresses
+              if (holderTracker && activeAddresses.length > 0) {
+                const uniqueAddresses = [...new Set(activeAddresses)];
+                holderTracker.quickUpdateActiveAddresses(uniqueAddresses).catch(console.error);
+              }
               
               // Update last processed block
               db.run('INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)', 
@@ -1114,7 +1242,7 @@ app.get('/api/stats/active-addresses', (req, res) => {
   );
 });
 
-// NEW POWER USERS ENDPOINTS
+// POWER USERS ENDPOINTS
 
 // Get detailed power users analysis
 app.get('/api/power-users/detailed', async (req, res) => {
@@ -1402,6 +1530,403 @@ app.get('/api/power-users/behaviors', async (req, res) => {
   }
 });
 
+// === HOLDER API ENDPOINTS ===
+
+// Get holder overview statistics
+app.get('/api/holders/overview', async (req, res) => {
+  try {
+    // Get basic statistics
+    const stats = await new Promise((resolve, reject) => {
+      db.get(`
+        SELECT 
+          COUNT(*) as total_holders,
+          COUNT(CASE WHEN balance_numeric > 0 THEN 1 END) as active_holders,
+          SUM(balance_numeric) as total_supply,
+          AVG(balance_numeric) as avg_balance,
+          MAX(balance_numeric) as max_balance,
+          COUNT(CASE WHEN is_contract = 1 THEN 1 END) as contract_holders,
+          COUNT(CASE WHEN is_contract = 0 THEN 1 END) as eoa_holders
+        FROM holders
+        WHERE balance_numeric > 0.000001
+      `, (err, row) => {
+        if (err) reject(err);
+        else resolve(row);
+      });
+    });
+
+    // Get distribution metrics
+    const distribution = await new Promise((resolve, reject) => {
+      db.get(`
+        SELECT 
+          SUM(CASE WHEN balance_numeric >= 0.01 AND balance_numeric < 1 THEN 1 ELSE 0 END) as micro_holders,
+          SUM(CASE WHEN balance_numeric >= 1 AND balance_numeric < 10 THEN 1 ELSE 0 END) as small_holders,
+          SUM(CASE WHEN balance_numeric >= 10 AND balance_numeric < 100 THEN 1 ELSE 0 END) as medium_holders,
+          SUM(CASE WHEN balance_numeric >= 100 AND balance_numeric < 1000 THEN 1 ELSE 0 END) as large_holders,
+          SUM(CASE WHEN balance_numeric >= 1000 AND balance_numeric < 10000 THEN 1 ELSE 0 END) as xl_holders,
+          SUM(CASE WHEN balance_numeric >= 10000 THEN 1 ELSE 0 END) as whale_holders
+        FROM holders
+        WHERE balance_numeric > 0
+      `, (err, row) => {
+        if (err) reject(err);
+        else resolve(row);
+      });
+    });
+
+    // Get top 10 balance concentration
+    const topHolders = await new Promise((resolve, reject) => {
+      db.all(
+        'SELECT balance_numeric FROM holders ORDER BY balance_numeric DESC LIMIT 100',
+        (err, rows) => {
+          if (err) reject(err);
+          else resolve(rows);
+        }
+      );
+    });
+
+    let top10Balance = 0, top20Balance = 0, top50Balance = 0, top100Balance = 0;
+    topHolders.forEach((holder, index) => {
+      if (index < 10) top10Balance += holder.balance_numeric;
+      if (index < 20) top20Balance += holder.balance_numeric;
+      if (index < 50) top50Balance += holder.balance_numeric;
+      if (index < 100) top100Balance += holder.balance_numeric;
+    });
+
+    const totalSupply = stats.total_supply || 1; // Avoid division by zero
+
+    res.json({
+      overview: {
+        totalHolders: stats.total_holders || 0,
+        activeHolders: stats.active_holders || 0,
+        totalSupply: totalSupply,
+        avgBalance: stats.avg_balance || 0,
+        maxBalance: stats.max_balance || 0,
+        contractHolders: stats.contract_holders || 0,
+        eoaHolders: stats.eoa_holders || 0
+      },
+      distribution: {
+        ranges: {
+          '0.01-1': distribution.micro_holders || 0,
+          '1-10': distribution.small_holders || 0,
+          '10-100': distribution.medium_holders || 0,
+          '100-1K': distribution.large_holders || 0,
+          '1K-10K': distribution.xl_holders || 0,
+          '10K+': distribution.whale_holders || 0
+        },
+        concentration: {
+          top10: (top10Balance / totalSupply * 100).toFixed(2),
+          top20: (top20Balance / totalSupply * 100).toFixed(2),
+          top50: (top50Balance / totalSupply * 100).toFixed(2),
+          top100: (top100Balance / totalSupply * 100).toFixed(2)
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error getting holder overview:', error);
+    res.status(500).json({ error: 'Failed to get holder overview' });
+  }
+});
+
+// Get top holders (rich list)
+app.get('/api/holders/top', async (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit) || 100, 500);
+  const offset = parseInt(req.query.offset) || 0;
+  const excludeContracts = req.query.excludeContracts === 'true';
+  
+  try {
+    const whereClause = excludeContracts 
+      ? 'WHERE balance_numeric > 0 AND is_contract = 0' 
+      : 'WHERE balance_numeric > 0';
+    
+    const holders = await new Promise((resolve, reject) => {
+      db.all(`
+        SELECT 
+          h.address,
+          h.balance,
+          h.balance_numeric,
+          h.is_contract,
+          h.tx_count,
+          h.first_seen_timestamp,
+          h.last_updated_timestamp,
+          ka.label,
+          ka.category
+        FROM holders h
+        LEFT JOIN known_addresses ka ON h.address = ka.address
+        ${whereClause}
+        ORDER BY h.balance_numeric DESC
+        LIMIT ? OFFSET ?
+      `, [limit, offset], (err, rows) => {
+        if (err) reject(err);
+        else resolve(rows);
+      });
+    });
+
+    // Get total supply for percentage calculation
+    const totalSupply = await new Promise((resolve, reject) => {
+      db.get(
+        'SELECT SUM(balance_numeric) as total FROM holders WHERE balance_numeric > 0',
+        (err, row) => {
+          if (err) reject(err);
+          else resolve(row.total || 0);
+        }
+      );
+    });
+
+    // Calculate rank and percentage for each holder
+    const enrichedHolders = holders.map((holder, index) => ({
+      rank: offset + index + 1,
+      address: holder.address,
+      balance: holder.balance,
+      balance_numeric: holder.balance_numeric,
+      percentage: ((holder.balance_numeric / totalSupply) * 100).toFixed(4),
+      is_contract: holder.is_contract === 1,
+      tx_count: holder.tx_count,
+      label: holder.label,
+      category: holder.category,
+      first_seen: holder.first_seen_timestamp,
+      last_updated: holder.last_updated_timestamp
+    }));
+
+    res.json({
+      holders: enrichedHolders,
+      totalSupply: totalSupply,
+      hasMore: holders.length === limit
+    });
+  } catch (error) {
+    console.error('Error getting top holders:', error);
+    res.status(500).json({ error: 'Failed to get top holders' });
+  }
+});
+
+// Get holder details by address
+app.get('/api/holders/:address', async (req, res) => {
+  const address = req.params.address.toLowerCase();
+  
+  try {
+    // Get holder info
+    const holder = await new Promise((resolve, reject) => {
+      db.get(`
+        SELECT 
+          h.*,
+          ka.label,
+          ka.category,
+          ka.description
+        FROM holders h
+        LEFT JOIN known_addresses ka ON h.address = ka.address
+        WHERE h.address = ?
+      `, [address], (err, row) => {
+        if (err) reject(err);
+        else resolve(row);
+      });
+    });
+
+    if (!holder) {
+      return res.status(404).json({ error: 'Address not found' });
+    }
+
+    // Get rank
+    const rank = await new Promise((resolve, reject) => {
+      db.get(
+        'SELECT COUNT(*) + 1 as rank FROM holders WHERE balance_numeric > ?',
+        [holder.balance_numeric],
+        (err, row) => {
+          if (err) reject(err);
+          else resolve(row.rank);
+        }
+      );
+    });
+
+    // Get recent transactions
+    const recentTxs = await new Promise((resolve, reject) => {
+      db.all(`
+        SELECT 
+          tx_hash,
+          block_number,
+          amount,
+          timestamp,
+          burn_type
+        FROM burns
+        WHERE from_address = ?
+        ORDER BY timestamp DESC
+        LIMIT 20
+      `, [address], (err, rows) => {
+        if (err) reject(err);
+        else resolve(rows);
+      });
+    });
+
+    // Get transaction statistics
+    const txStats = await new Promise((resolve, reject) => {
+      db.get(`
+        SELECT 
+          COUNT(*) as total_txs,
+          SUM(CAST(amount AS REAL)) as total_burned,
+          AVG(CAST(amount AS REAL)) as avg_burn,
+          MIN(timestamp) as first_tx,
+          MAX(timestamp) as last_tx
+        FROM burns
+        WHERE from_address = ?
+      `, [address], (err, row) => {
+        if (err) reject(err);
+        else resolve(row);
+      });
+    });
+
+    res.json({
+      address: holder.address,
+      balance: holder.balance,
+      balance_numeric: holder.balance_numeric,
+      rank: rank,
+      is_contract: holder.is_contract === 1,
+      label: holder.label,
+      category: holder.category,
+      description: holder.description,
+      first_seen: holder.first_seen_timestamp,
+      last_updated: holder.last_updated_timestamp,
+      transactions: {
+        count: txStats.total_txs || 0,
+        total_burned: txStats.total_burned || 0,
+        avg_burn: txStats.avg_burn || 0,
+        first_tx: txStats.first_tx,
+        last_tx: txStats.last_tx,
+        recent: recentTxs
+      }
+    });
+  } catch (error) {
+    console.error('Error getting holder details:', error);
+    res.status(500).json({ error: 'Failed to get holder details' });
+  }
+});
+
+// Get holder growth history
+app.get('/api/holders/history', async (req, res) => {
+  const days = parseInt(req.query.days) || 30;
+  const since = Math.floor(Date.now() / 1000) - (days * 24 * 60 * 60);
+  
+  try {
+    const history = await new Promise((resolve, reject) => {
+      db.all(`
+        SELECT 
+          timestamp,
+          block_number,
+          total_holders,
+          holders_above_1,
+          holders_above_10,
+          holders_above_100,
+          holders_above_1000,
+          holders_above_10000,
+          top_10_balance,
+          top_50_balance,
+          top_100_balance,
+          total_supply
+        FROM holder_history
+        WHERE timestamp > ?
+        ORDER BY timestamp ASC
+      `, [since], (err, rows) => {
+        if (err) reject(err);
+        else resolve(rows);
+      });
+    });
+
+    res.json(history);
+  } catch (error) {
+    console.error('Error getting holder history:', error);
+    res.status(500).json({ error: 'Failed to get holder history' });
+  }
+});
+
+// Search holders by address or label
+app.get('/api/holders/search', async (req, res) => {
+  const query = req.query.q;
+  if (!query || query.length < 3) {
+    return res.status(400).json({ error: 'Query must be at least 3 characters' });
+  }
+
+  try {
+    const results = await new Promise((resolve, reject) => {
+      db.all(`
+        SELECT 
+          h.address,
+          h.balance,
+          h.balance_numeric,
+          h.is_contract,
+          ka.label,
+          ka.category
+        FROM holders h
+        LEFT JOIN known_addresses ka ON h.address = ka.address
+        WHERE h.address LIKE ? OR ka.label LIKE ?
+        ORDER BY h.balance_numeric DESC
+        LIMIT 20
+      `, [`%${query}%`, `%${query}%`], (err, rows) => {
+        if (err) reject(err);
+        else resolve(rows);
+      });
+    });
+
+    res.json(results);
+  } catch (error) {
+    console.error('Error searching holders:', error);
+    res.status(500).json({ error: 'Failed to search holders' });
+  }
+});
+
+// Admin endpoint to trigger holder scan
+app.post('/api/admin/scan-holders', async (req, res) => {
+  const adminToken = req.headers['x-admin-token'];
+  if (adminToken !== process.env.ADMIN_TOKEN) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  const fromBlock = parseInt(req.body.fromBlock) || 0;
+  const toBlock = req.body.toBlock || 'latest';
+
+  if (!holderTracker) {
+    return res.status(500).json({ error: 'Holder tracker not initialized' });
+  }
+
+  // Run scan in background
+  holderTracker.scanForHolders(fromBlock, toBlock)
+    .then(count => {
+      console.log(`Holder scan completed, found ${count} addresses`);
+    })
+    .catch(error => {
+      console.error('Holder scan failed:', error);
+    });
+
+  res.json({ 
+    message: 'Holder scan started',
+    fromBlock,
+    toBlock
+  });
+});
+
+// Admin endpoint to update specific addresses
+app.post('/api/admin/update-holders', async (req, res) => {
+  const adminToken = req.headers['x-admin-token'];
+  if (adminToken !== process.env.ADMIN_TOKEN) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  const addresses = req.body.addresses;
+  if (!addresses || !Array.isArray(addresses)) {
+    return res.status(400).json({ error: 'Invalid addresses array' });
+  }
+
+  if (!holderTracker) {
+    return res.status(500).json({ error: 'Holder tracker not initialized' });
+  }
+
+  try {
+    const count = await holderTracker.updateBalancesForAddresses(addresses, 'latest');
+    res.json({ 
+      message: 'Holder balances updated',
+      updated: count
+    });
+  } catch (error) {
+    console.error('Error updating holders:', error);
+    res.status(500).json({ error: 'Failed to update holders' });
+  }
+});
+
 // Admin endpoint to trigger historical sync
 app.post('/api/admin/sync-historical', (req, res) => {
   // Simple authentication - you should improve this!
@@ -1541,6 +2066,9 @@ server.listen(PORT, () => {
         }
       });
     });
+    
+    // Initialize holder tracker
+    initializeHolderTracker();
     
     pollBlocks();
     updateTokenPrice();
