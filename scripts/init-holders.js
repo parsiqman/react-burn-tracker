@@ -4,7 +4,7 @@ const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 require('dotenv').config();
 
-const HolderTracker = require('../holder-tracker');
+const HolderTracker = require('./holder-tracker');
 
 // Database path
 const dbPath = process.env.NODE_ENV === 'production' 
