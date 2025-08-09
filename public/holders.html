@@ -1,0 +1,973 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>REACT Token Holders - Analytics Dashboard</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary: #FF6B6B;
+            --secondary: #4ECDC4;
+            --dark: #0A0E27;
+            --darker: #060817;
+            --light: #F7F9FC;
+            --success: #51CF66;
+            --warning: #FFD93D;
+            --purple: #764ba2;
+            --orange: #FFA502;
+            --gradient-burn: linear-gradient(135deg, #FF6B6B 0%, #FFA502 100%);
+            --gradient-holder: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--darker);
+            color: var(--light);
+            min-height: 100vh;
+        }
+
+        /* Header */
+        .header {
+            background: rgba(10, 14, 39, 0.95);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header-content {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 1.5rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .logo-icon {
+            width: 48px;
+            height: 48px;
+            background: var(--gradient-holder);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 1.5rem;
+        }
+
+        .logo-text h1 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            background: var(--gradient-holder);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .nav-link {
+            color: var(--secondary);
+            text-decoration: none;
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+        }
+
+        .nav-link:hover {
+            background: rgba(78, 205, 196, 0.1);
+        }
+
+        /* Container */
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        /* Loading State */
+        .loading {
+            text-align: center;
+            padding: 4rem;
+        }
+
+        .loading-spinner {
+            width: 60px;
+            height: 60px;
+            border: 4px solid rgba(255, 255, 255, 0.1);
+            border-top-color: var(--purple);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 2rem;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Overview Cards */
+        .overview-section {
+            margin-bottom: 3rem;
+        }
+
+        .overview-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .overview-card {
+            background: rgba(26, 30, 58, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 1.5rem;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+
+        .overview-card:hover {
+            transform: translateY(-5px);
+            border-color: rgba(102, 126, 234, 0.3);
+        }
+
+        .overview-value {
+            font-size: 2rem;
+            font-weight: 700;
+            background: var(--gradient-holder);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 0.5rem;
+        }
+
+        .overview-label {
+            font-size: 0.875rem;
+            color: rgba(255, 255, 255, 0.7);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        /* Distribution Charts */
+        .charts-section {
+            margin-bottom: 3rem;
+        }
+
+        .charts-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 2rem;
+        }
+
+        .chart-card {
+            background: rgba(26, 30, 58, 0.4);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            padding: 2rem;
+        }
+
+        .chart-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 1.5rem;
+            color: var(--secondary);
+        }
+
+        .chart-container {
+            position: relative;
+            height: 300px;
+        }
+
+        /* Rich List Table */
+        .richlist-section {
+            background: rgba(26, 30, 58, 0.4);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+        }
+
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+        }
+
+        .section-title {
+            font-size: 1.5rem;
+            font-weight: 600;
+            background: var(--gradient-holder);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .filter-controls {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+
+        .filter-btn {
+            padding: 0.5rem 1rem;
+            background: transparent;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            color: rgba(255, 255, 255, 0.7);
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .filter-btn.active {
+            background: var(--gradient-holder);
+            border: none;
+            color: white;
+        }
+
+        /* Table Styles */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th {
+            text-align: left;
+            padding: 1rem;
+            font-size: 0.875rem;
+            color: rgba(255, 255, 255, 0.7);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        td {
+            padding: 1rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .rank-cell {
+            font-weight: 600;
+            color: var(--purple);
+        }
+
+        .address-cell {
+            font-family: 'Courier New', monospace;
+            font-size: 0.875rem;
+            color: var(--secondary);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .address-cell:hover {
+            color: var(--orange);
+        }
+
+        .address-label {
+            background: rgba(102, 126, 234, 0.2);
+            color: #667eea;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-family: -apple-system, sans-serif;
+        }
+
+        .contract-badge {
+            background: rgba(255, 165, 2, 0.2);
+            color: var(--orange);
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+        }
+
+        .balance-cell {
+            font-weight: 600;
+        }
+
+        .percentage-cell {
+            color: rgba(255, 255, 255, 0.7);
+        }
+
+        .percentage-bar {
+            height: 4px;
+            background: rgba(102, 126, 234, 0.2);
+            border-radius: 2px;
+            overflow: hidden;
+            margin-top: 0.25rem;
+        }
+
+        .percentage-fill {
+            height: 100%;
+            background: var(--gradient-holder);
+            border-radius: 2px;
+            transition: width 0.3s ease;
+        }
+
+        /* Search Box */
+        .search-box {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .search-input {
+            flex: 1;
+            padding: 1rem;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            color: white;
+            font-size: 1rem;
+        }
+
+        .search-input:focus {
+            outline: none;
+            border-color: var(--purple);
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .search-btn {
+            padding: 1rem 2rem;
+            background: var(--gradient-holder);
+            border: none;
+            border-radius: 8px;
+            color: white;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .search-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
+        }
+
+        /* Pagination */
+        .pagination {
+            display: flex;
+            justify-content: center;
+            gap: 0.5rem;
+            margin-top: 2rem;
+        }
+
+        .page-btn {
+            padding: 0.5rem 1rem;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 6px;
+            color: rgba(255, 255, 255, 0.7);
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .page-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .page-btn.active {
+            background: var(--gradient-holder);
+            border: none;
+            color: white;
+        }
+
+        .page-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* Insights Box */
+        .insights-box {
+            background: rgba(102, 126, 234, 0.1);
+            border-left: 4px solid #667eea;
+            padding: 1.5rem;
+            border-radius: 8px;
+            margin-top: 2rem;
+        }
+
+        .insights-box h3 {
+            color: #667eea;
+            margin-bottom: 1rem;
+        }
+
+        .insight-item {
+            margin-bottom: 0.75rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .insight-item::before {
+            content: "→";
+            color: #667eea;
+            font-weight: bold;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .container {
+                padding: 1rem;
+            }
+
+            .overview-grid {
+                grid-template-columns: 1fr 1fr;
+            }
+
+            .charts-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .filter-controls {
+                flex-direction: column;
+                width: 100%;
+            }
+
+            .filter-btn {
+                width: 100%;
+            }
+
+            .table-container {
+                overflow-x: auto;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="header-content">
+            <div class="logo">
+                <div class="logo-icon">💎</div>
+                <div class="logo-text">
+                    <h1>REACT Token Holders</h1>
+                    <p>Analytics Dashboard</p>
+                </div>
+            </div>
+            <nav>
+                <a href="/" class="nav-link">← Back to Dashboard</a>
+            </nav>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <div class="container">
+        <!-- Loading State -->
+        <div id="loadingState" class="loading">
+            <div class="loading-spinner"></div>
+            <p>Loading holder analytics...</p>
+        </div>
+
+        <!-- Main Content (hidden initially) -->
+        <div id="mainContent" style="display: none;">
+            <!-- Overview Section -->
+            <div class="overview-section">
+                <h2 style="margin-bottom: 1.5rem; color: var(--secondary);">Token Holder Overview</h2>
+                <div class="overview-grid">
+                    <div class="overview-card">
+                        <div class="overview-value" id="totalHolders">-</div>
+                        <div class="overview-label">Total Holders</div>
+                    </div>
+                    <div class="overview-card">
+                        <div class="overview-value" id="activeHolders">-</div>
+                        <div class="overview-label">Active Holders</div>
+                    </div>
+                    <div class="overview-card">
+                        <div class="overview-value" id="avgBalance">-</div>
+                        <div class="overview-label">Average Balance</div>
+                    </div>
+                    <div class="overview-card">
+                        <div class="overview-value" id="whaleCount">-</div>
+                        <div class="overview-label">Whales (10K+)</div>
+                    </div>
+                    <div class="overview-card">
+                        <div class="overview-value" id="top10Concentration">-</div>
+                        <div class="overview-label">Top 10 Control</div>
+                    </div>
+                    <div class="overview-card">
+                        <div class="overview-value" id="contractHolders">-</div>
+                        <div class="overview-label">Contract Holders</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Charts Section -->
+            <div class="charts-section">
+                <div class="charts-grid">
+                    <!-- Distribution Chart -->
+                    <div class="chart-card">
+                        <h3 class="chart-title">Holder Distribution</h3>
+                        <div class="chart-container">
+                            <canvas id="distributionChart"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Concentration Chart -->
+                    <div class="chart-card">
+                        <h3 class="chart-title">Token Concentration</h3>
+                        <div class="chart-container">
+                            <canvas id="concentrationChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Search Section -->
+            <div class="search-box">
+                <input type="text" 
+                       id="searchInput" 
+                       class="search-input" 
+                       placeholder="Search by address or label (e.g., 0x1234... or 'exchange')">
+                <button class="search-btn" onclick="searchHolders()">Search</button>
+            </div>
+
+            <!-- Rich List Section -->
+            <div class="richlist-section">
+                <div class="section-header">
+                    <h2 class="section-title">Top REACT Holders</h2>
+                    <div class="filter-controls">
+                        <button class="filter-btn active" id="filterAll" onclick="filterHolders('all')">All</button>
+                        <button class="filter-btn" id="filterEOA" onclick="filterHolders('eoa')">EOA Only</button>
+                        <button class="filter-btn" id="filterContracts" onclick="filterHolders('contracts')">Contracts</button>
+                    </div>
+                </div>
+
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th style="width: 60px;">Rank</th>
+                                <th>Address</th>
+                                <th>Balance</th>
+                                <th>Percentage</th>
+                                <th>Transactions</th>
+                                <th>Type</th>
+                            </tr>
+                        </thead>
+                        <tbody id="holdersTable">
+                            <!-- Populated by JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Pagination -->
+                <div class="pagination" id="pagination">
+                    <!-- Populated by JavaScript -->
+                </div>
+            </div>
+
+            <!-- Insights Section -->
+            <div class="insights-box">
+                <h3>Key Insights</h3>
+                <div id="insights"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = window.location.origin;
+        let currentFilter = 'all';
+        let currentPage = 1;
+        const pageSize = 50;
+        let distributionChart = null;
+        let concentrationChart = null;
+
+        // Format functions
+        function formatNumber(num) {
+            if (num === 0) return '0';
+            if (num < 0.000001) return num.toExponential(2);
+            if (num < 0.01) return num.toFixed(8);
+            if (num < 1) return num.toFixed(6);
+            if (num >= 1e9) return (num / 1e9).toFixed(2) + 'B';
+            if (num >= 1e6) return (num / 1e6).toFixed(2) + 'M';
+            if (num >= 1e3) return (num / 1e3).toFixed(2) + 'K';
+            return num.toLocaleString('en-US', { maximumFractionDigits: 2 });
+        }
+
+        function formatAddress(address) {
+            if (!address) return '';
+            return `${address.substring(0, 6)}...${address.substring(38)}`;
+        }
+
+        // Load overview data
+        async function loadOverview() {
+            try {
+                const response = await fetch(`${API_URL}/api/holders/overview`);
+                const data = await response.json();
+
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+
+                // Update overview cards
+                document.getElementById('totalHolders').textContent = formatNumber(data.overview.totalHolders);
+                document.getElementById('activeHolders').textContent = formatNumber(data.overview.activeHolders);
+                document.getElementById('avgBalance').textContent = formatNumber(data.overview.avgBalance) + ' REACT';
+                document.getElementById('whaleCount').textContent = formatNumber(data.distribution.ranges['10K+'] || 0);
+                document.getElementById('top10Concentration').textContent = data.distribution.concentration.top10 + '%';
+                document.getElementById('contractHolders').textContent = formatNumber(data.overview.contractHolders);
+
+                // Update distribution chart
+                updateDistributionChart(data.distribution.ranges);
+
+                // Update concentration chart
+                updateConcentrationChart(data.distribution.concentration);
+
+                // Generate insights
+                generateInsights(data);
+
+            } catch (error) {
+                console.error('Error loading overview:', error);
+            }
+        }
+
+        // Update distribution chart
+        function updateDistributionChart(ranges) {
+            const ctx = document.getElementById('distributionChart').getContext('2d');
+            
+            if (distributionChart) {
+                distributionChart.destroy();
+            }
+
+            distributionChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: Object.keys(ranges).map(range => range + ' REACT'),
+                    datasets: [{
+                        data: Object.values(ranges),
+                        backgroundColor: [
+                            'rgba(255, 107, 107, 0.8)',
+                            'rgba(78, 205, 196, 0.8)',
+                            'rgba(255, 233, 109, 0.8)',
+                            'rgba(102, 126, 234, 0.8)',
+                            'rgba(118, 75, 162, 0.8)',
+                            'rgba(255, 165, 2, 0.8)'
+                        ],
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: {
+                                color: '#F7F9FC',
+                                padding: 15
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const label = context.label || '';
+                                    const value = context.parsed || 0;
+                                    const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                    const percentage = ((value / total) * 100).toFixed(1);
+                                    return `${label}: ${value} holders (${percentage}%)`;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Update concentration chart
+        function updateConcentrationChart(concentration) {
+            const ctx = document.getElementById('concentrationChart').getContext('2d');
+            
+            if (concentrationChart) {
+                concentrationChart.destroy();
+            }
+
+            concentrationChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: ['Top 10', 'Top 20', 'Top 50', 'Top 100'],
+                    datasets: [{
+                        label: '% of Total Supply',
+                        data: [
+                            parseFloat(concentration.top10),
+                            parseFloat(concentration.top20),
+                            parseFloat(concentration.top50),
+                            parseFloat(concentration.top100)
+                        ],
+                        backgroundColor: 'rgba(102, 126, 234, 0.6)',
+                        borderColor: 'rgba(102, 126, 234, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return `${context.parsed.y.toFixed(2)}% of total supply`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 100,
+                            ticks: {
+                                color: '#F7F9FC',
+                                callback: function(value) {
+                                    return value + '%';
+                                }
+                            },
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.05)'
+                            }
+                        },
+                        x: {
+                            ticks: {
+                                color: '#F7F9FC'
+                            },
+                            grid: {
+                                display: false
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Load top holders
+        async function loadTopHolders(page = 1, filter = 'all') {
+            try {
+                const excludeContracts = filter === 'eoa' ? 'true' : 'false';
+                const offset = (page - 1) * pageSize;
+                
+                let url = `${API_URL}/api/holders/top?limit=${pageSize}&offset=${offset}`;
+                if (filter === 'eoa') {
+                    url += '&excludeContracts=true';
+                }
+
+                const response = await fetch(url);
+                const data = await response.json();
+
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+
+                // Update table
+                const tbody = document.getElementById('holdersTable');
+                tbody.innerHTML = data.holders
+                    .filter(holder => {
+                        if (filter === 'contracts') return holder.is_contract;
+                        return true;
+                    })
+                    .map(holder => {
+                        const addressDisplay = holder.label 
+                            ? `${formatAddress(holder.address)} <span class="address-label">${holder.label}</span>`
+                            : formatAddress(holder.address);
+
+                        const typeDisplay = holder.is_contract 
+                            ? '<span class="contract-badge">Contract</span>'
+                            : 'EOA';
+
+                        return `
+                            <tr>
+                                <td class="rank-cell">#${holder.rank}</td>
+                                <td class="address-cell" onclick="viewHolder('${holder.address}')">
+                                    ${addressDisplay}
+                                </td>
+                                <td class="balance-cell">${formatNumber(holder.balance_numeric)} REACT</td>
+                                <td class="percentage-cell">
+                                    ${holder.percentage}%
+                                    <div class="percentage-bar">
+                                        <div class="percentage-fill" style="width: ${Math.min(holder.percentage * 10, 100)}%"></div>
+                                    </div>
+                                </td>
+                                <td>${holder.tx_count || 0}</td>
+                                <td>${typeDisplay}</td>
+                            </tr>
+                        `;
+                    }).join('');
+
+                // Update pagination
+                updatePagination(page, data.hasMore);
+
+            } catch (error) {
+                console.error('Error loading top holders:', error);
+            }
+        }
+
+        // Update pagination controls
+        function updatePagination(currentPage, hasMore) {
+            const pagination = document.getElementById('pagination');
+            let html = '';
+
+            // Previous button
+            html += `<button class="page-btn" ${currentPage === 1 ? 'disabled' : ''} 
+                     onclick="changePage(${currentPage - 1})">Previous</button>`;
+
+            // Page numbers
+            for (let i = Math.max(1, currentPage - 2); i <= Math.min(currentPage + 2, currentPage + (hasMore ? 1 : 0)); i++) {
+                html += `<button class="page-btn ${i === currentPage ? 'active' : ''}" 
+                         onclick="changePage(${i})">${i}</button>`;
+            }
+
+            // Next button
+            html += `<button class="page-btn" ${!hasMore ? 'disabled' : ''} 
+                     onclick="changePage(${currentPage + 1})">Next</button>`;
+
+            pagination.innerHTML = html;
+        }
+
+        // Change page
+        function changePage(page) {
+            currentPage = page;
+            loadTopHolders(page, currentFilter);
+        }
+
+        // Filter holders
+        function filterHolders(filter) {
+            currentFilter = filter;
+            currentPage = 1;
+
+            // Update button states
+            document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
+            document.getElementById('filter' + filter.charAt(0).toUpperCase() + filter.slice(1)).classList.add('active');
+
+            loadTopHolders(1, filter);
+        }
+
+        // Search holders
+        async function searchHolders() {
+            const query = document.getElementById('searchInput').value.trim();
+            if (query.length < 3) {
+                alert('Please enter at least 3 characters to search');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_URL}/api/holders/search?q=${encodeURIComponent(query)}`);
+                const results = await response.json();
+
+                if (results.error) {
+                    throw new Error(results.error);
+                }
+
+                // Display search results in the table
+                const tbody = document.getElementById('holdersTable');
+                if (results.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 2rem;">No results found</td></tr>';
+                } else {
+                    tbody.innerHTML = results.map((holder, index) => {
+                        const addressDisplay = holder.label 
+                            ? `${formatAddress(holder.address)} <span class="address-label">${holder.label}</span>`
+                            : formatAddress(holder.address);
+
+                        const typeDisplay = holder.is_contract 
+                            ? '<span class="contract-badge">Contract</span>'
+                            : 'EOA';
+
+                        return `
+                            <tr>
+                                <td class="rank-cell">-</td>
+                                <td class="address-cell" onclick="viewHolder('${holder.address}')">
+                                    ${addressDisplay}
+                                </td>
+                                <td class="balance-cell">${formatNumber(holder.balance_numeric)} REACT</td>
+                                <td class="percentage-cell">-</td>
+                                <td>-</td>
+                                <td>${typeDisplay}</td>
+                            </tr>
+                        `;
+                    }).join('');
+                }
+
+                // Hide pagination for search results
+                document.getElementById('pagination').style.display = 'none';
+
+            } catch (error) {
+                console.error('Error searching holders:', error);
+                alert('Error searching holders. Please try again.');
+            }
+        }
+
+        // View holder details
+        function viewHolder(address) {
+            window.open(`https://reactscan.net/address/${address}`, '_blank');
+        }
+
+        // Generate insights
+        function generateInsights(data) {
+            const insights = [];
+
+            // Concentration insight
+            const top10 = parseFloat(data.distribution.concentration.top10);
+            if (top10 > 50) {
+                insights.push(`High concentration: Top 10 holders control ${top10}% of supply`);
+            } else if (top10 < 20) {
+                insights.push(`Well distributed: Top 10 holders control only ${top10}% of supply`);
+            } else {
+                insights.push(`Moderate concentration: Top 10 holders control ${top10}% of supply`);
+            }
+
+            // Holder growth insight
+            const activeRatio = (data.overview.activeHolders / data.overview.totalHolders * 100).toFixed(1);
+            insights.push(`${activeRatio}% of addresses have a balance > 0.000001 REACT`);
+
+            // Contract vs EOA insight
+            const contractRatio = (data.overview.contractHolders / data.overview.totalHolders * 100).toFixed(1);
+            insights.push(`${contractRatio}% of holders are smart contracts`);
+
+            // Whale insight
+            const whales = data.distribution.ranges['10K+'] || 0;
+            if (whales > 0) {
+                insights.push(`${whales} whale addresses hold more than 10,000 REACT each`);
+            }
+
+            // Display insights
+            document.getElementById('insights').innerHTML = insights.map(insight => 
+                `<div class="insight-item">${insight}</div>`
+            ).join('');
+        }
+
+        // Initialize on load
+        window.addEventListener('load', async () => {
+            try {
+                await loadOverview();
+                await loadTopHolders();
+                
+                // Hide loading, show content
+                document.getElementById('loadingState').style.display = 'none';
+                document.getElementById('mainContent').style.display = 'block';
+            } catch (error) {
+                console.error('Error initializing:', error);
+                document.getElementById('loadingState').innerHTML = 
+                    '<p style="color: #FF6B6B;">Error loading holder data. Please try again.</p>';
+            }
+        });
+
+        // Add enter key support for search
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('searchInput').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    searchHolders();
+                }
+            });
+        });
+    </script>
+</body>
+</html>
