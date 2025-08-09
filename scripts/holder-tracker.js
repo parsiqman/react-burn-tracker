@@ -1,28 +1,7 @@
-// holder-tracker.js - Service for tracking REACT token holders
+// holder-tracker.js - Service for tracking REACT native token holders
 const { Web3 } = require('web3');
 const sqlite3 = require('sqlite3').verbose();
 require('dotenv').config();
-
-// REACT Token ABI - minimal ABI for balance and Transfer events
-const REACT_TOKEN_ABI = [
-  {
-    "constant": true,
-    "inputs": [{"name": "_owner", "type": "address"}],
-    "name": "balanceOf",
-    "outputs": [{"name": "balance", "type": "uint256"}],
-    "type": "function"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {"indexed": true, "name": "from", "type": "address"},
-      {"indexed": true, "name": "to", "type": "address"},
-      {"indexed": false, "name": "value", "type": "uint256"}
-    ],
-    "name": "Transfer",
-    "type": "event"
-  }
-];
 
 class HolderTracker {
   constructor(db, web3) {
@@ -31,17 +10,13 @@ class HolderTracker {
     this.updateQueue = [];
     this.isProcessing = false;
     this.lastScanBlock = 0;
-    this.BATCH_SIZE = 50; // Process 50 addresses at a time
-    this.MIN_BALANCE = 0.000001; // Minimum balance to track
+    this.BATCH_SIZE = 50;
+    this.MIN_BALANCE = 0.000001;
+    // Note: REACT is the native token, not an ERC20
     this.REACT_TOKEN_ADDRESS = process.env.REACT_TOKEN_ADDRESS || '0x0000000000000000000000000000000000fffFfF';
-    
-    // Initialize REACT token contract
-    this.reactToken = new web3.eth.Contract(REACT_TOKEN_ABI, this.REACT_TOKEN_ADDRESS);
   }
 
-  // Initialize the holder tracking
   async initialize() {
-    // Get last scanned block from metadata
     return new Promise((resolve) => {
       this.db.get('SELECT value FROM metadata WHERE key = ?', ['last_holder_scan_block'], (err, row) => {
         if (row) {
@@ -52,7 +27,6 @@ class HolderTracker {
     });
   }
 
-  // Scan for all REACT token holders by analyzing Transfer events
   async scanForHolders(fromBlock = 0, toBlock = 'latest') {
     console.log(`Scanning for REACT holders from block ${fromBlock} to ${toBlock}`);
     
@@ -62,7 +36,7 @@ class HolderTracker {
 
     const addresses = new Set();
     
-    // First, get addresses from existing burns table
+    // Get addresses from burns table
     await new Promise((resolve) => {
       this.db.all('SELECT DISTINCT from_address FROM burns', (err, rows) => {
         if (rows) {
@@ -74,112 +48,63 @@ class HolderTracker {
 
     console.log(`Found ${addresses.size} addresses from burns table`);
 
-    // Now scan Transfer events to find all addresses that have ever held REACT
-    try {
-      const CHUNK_SIZE = 5000; // Process events in chunks
-      
-      for (let startBlock = fromBlock; startBlock <= toBlock; startBlock += CHUNK_SIZE) {
-        const endBlock = Math.min(startBlock + CHUNK_SIZE - 1, toBlock);
-        
-        console.log(`Scanning Transfer events from block ${startBlock} to ${endBlock}`);
-        
-        try {
-          // Get all Transfer events in this range
-          const events = await this.reactToken.getPastEvents('Transfer', {
-            fromBlock: startBlock,
-            toBlock: endBlock
-          });
+    // Also scan recent blocks for all transaction addresses
+    if (toBlock - fromBlock < 10000) {
+      // Only scan if range is reasonable
+      try {
+        for (let blockNum = fromBlock; blockNum <= toBlock; blockNum += 100) {
+          const endBlock = Math.min(blockNum + 99, toBlock);
           
-          console.log(`Found ${events.length} Transfer events in blocks ${startBlock}-${endBlock}`);
-          
-          // Add all addresses involved in transfers
-          events.forEach(event => {
-            if (event.returnValues.from) {
-              addresses.add(event.returnValues.from.toLowerCase());
-            }
-            if (event.returnValues.to) {
-              addresses.add(event.returnValues.to.toLowerCase());
-            }
-          });
-          
-        } catch (error) {
-          console.error(`Error scanning blocks ${startBlock}-${endBlock}:`, error.message);
-          
-          // If chunk is too large, try smaller chunks
-          if (CHUNK_SIZE > 1000) {
-            const SMALLER_CHUNK = 1000;
-            for (let smallStart = startBlock; smallStart <= endBlock; smallStart += SMALLER_CHUNK) {
-              const smallEnd = Math.min(smallStart + SMALLER_CHUNK - 1, endBlock);
-              try {
-                const events = await this.reactToken.getPastEvents('Transfer', {
-                  fromBlock: smallStart,
-                  toBlock: smallEnd
+          for (let i = blockNum; i <= endBlock; i++) {
+            try {
+              const block = await this.web3.eth.getBlock(i, true);
+              if (block && block.transactions) {
+                block.transactions.forEach(tx => {
+                  if (tx.from) addresses.add(tx.from.toLowerCase());
+                  if (tx.to) addresses.add(tx.to.toLowerCase());
                 });
-                
-                events.forEach(event => {
-                  if (event.returnValues.from) {
-                    addresses.add(event.returnValues.from.toLowerCase());
-                  }
-                  if (event.returnValues.to) {
-                    addresses.add(event.returnValues.to.toLowerCase());
-                  }
-                });
-              } catch (smallError) {
-                console.error(`Error in smaller chunk ${smallStart}-${smallEnd}:`, smallError.message);
               }
+            } catch (err) {
+              // Skip blocks that fail
             }
           }
         }
-        
-        // Progress update
-        console.log(`Total unique addresses found so far: ${addresses.size}`);
-        
-        // Small delay to avoid rate limiting
-        await new Promise(resolve => setTimeout(resolve, 200));
+      } catch (error) {
+        console.log('Error scanning blocks for addresses:', error.message);
       }
-    } catch (error) {
-      console.error('Error scanning for Transfer events:', error);
     }
 
-    console.log(`Found ${addresses.size} total unique addresses to check`);
-
-    // Filter out zero address and dead addresses
+    // Filter out zero and system addresses
     addresses.delete('0x0000000000000000000000000000000000000000');
     addresses.delete('0x000000000000000000000000000000000000dead');
 
-    // Update balances for all found addresses
-    await this.updateTokenBalancesForAddresses(Array.from(addresses), toBlock);
-    
-    // Save scan progress
+    await this.updateNativeBalancesForAddresses(Array.from(addresses), toBlock);
     await this.saveScanProgress(toBlock);
     
     return addresses.size;
   }
 
-  // Update REACT token balances for a list of addresses
-  async updateTokenBalancesForAddresses(addresses, blockNumber) {
-    console.log(`Updating REACT token balances for ${addresses.length} addresses...`);
+  async updateNativeBalancesForAddresses(addresses, blockNumber) {
+    console.log(`Updating REACT native balances for ${addresses.length} addresses...`);
     
     const timestamp = Math.floor(Date.now() / 1000);
     const updates = [];
     let processedCount = 0;
     
-    // Process addresses in batches
     for (let i = 0; i < addresses.length; i += this.BATCH_SIZE) {
       const batch = addresses.slice(i, i + this.BATCH_SIZE);
       
       const balancePromises = batch.map(async (address) => {
         try {
-          // Get REACT token balance (not ETH balance!)
-          const balanceWei = await this.reactToken.methods.balanceOf(address).call(
-            {},
+          // Get native REACT balance (since REACT is the native token)
+          const balanceWei = await this.web3.eth.getBalance(
+            address, 
             blockNumber === 'latest' ? undefined : blockNumber
           );
           
           const balance = this.web3.utils.fromWei(balanceWei, 'ether');
           const balanceNumeric = parseFloat(balance);
           
-          // Skip if balance is below minimum threshold
           if (balanceNumeric < this.MIN_BALANCE) {
             return null;
           }
@@ -188,7 +113,7 @@ class HolderTracker {
           const code = await this.web3.eth.getCode(address);
           const isContract = code !== '0x' && code !== '0x0';
           
-          // Get transaction count for this address from burns table
+          // Get transaction count from burns table
           const txCount = await this.getTxCountForAddress(address);
           
           processedCount++;
@@ -203,7 +128,7 @@ class HolderTracker {
             timestamp
           };
         } catch (error) {
-          console.error(`Error getting REACT balance for ${address}:`, error.message);
+          console.error(`Error getting balance for ${address}:`, error.message);
           return null;
         }
       });
@@ -212,18 +137,15 @@ class HolderTracker {
       const validResults = results.filter(r => r !== null);
       updates.push(...validResults);
       
-      // Progress update
       if (processedCount % 500 === 0 || processedCount === addresses.length) {
         console.log(`Processed ${processedCount}/${addresses.length} addresses, found ${updates.length} with balance > ${this.MIN_BALANCE}`);
       }
       
-      // Small delay between batches to avoid rate limiting
       await new Promise(resolve => setTimeout(resolve, 100));
     }
     
     console.log(`Found ${updates.length} addresses with REACT balance > ${this.MIN_BALANCE}`);
     
-    // Batch insert/update in database
     if (updates.length > 0) {
       await this.batchUpdateHolders(updates);
     }
@@ -231,7 +153,6 @@ class HolderTracker {
     return updates.length;
   }
 
-  // Get transaction count for an address from burns table
   async getTxCountForAddress(address) {
     return new Promise((resolve) => {
       this.db.get(
@@ -244,7 +165,6 @@ class HolderTracker {
     });
   }
 
-  // Batch update holders in database
   async batchUpdateHolders(updates) {
     if (updates.length === 0) return;
     
@@ -286,7 +206,7 @@ class HolderTracker {
             this.db.run('ROLLBACK');
             reject(err);
           } else {
-            console.log(`Updated ${updates.length} holder balances in database`);
+            console.log(`Updated ${updates.length} holder balances`);
             resolve();
           }
         });
@@ -294,11 +214,8 @@ class HolderTracker {
     });
   }
 
-  // Save holder statistics snapshot
   async saveHolderSnapshot(blockNumber) {
     const timestamp = Math.floor(Date.now() / 1000);
-    
-    // Get holder statistics
     const stats = await this.getHolderStatistics();
     
     return new Promise((resolve, reject) => {
@@ -312,16 +229,16 @@ class HolderTracker {
       `, [
         timestamp,
         blockNumber,
-        stats.totalHolders,
-        stats.holdersAbove1,
-        stats.holdersAbove10,
-        stats.holdersAbove100,
-        stats.holdersAbove1000,
-        stats.holdersAbove10000,
-        stats.top10Balance,
-        stats.top50Balance,
-        stats.top100Balance,
-        stats.totalSupply
+        stats.totalHolders || 0,
+        stats.holdersAbove1 || 0,
+        stats.holdersAbove10 || 0,
+        stats.holdersAbove100 || 0,
+        stats.holdersAbove1000 || 0,
+        stats.holdersAbove10000 || 0,
+        stats.top10Balance || 0,
+        stats.top50Balance || 0,
+        stats.top100Balance || 0,
+        stats.totalSupply || 0
       ], (err) => {
         if (err) reject(err);
         else resolve();
@@ -329,7 +246,6 @@ class HolderTracker {
     });
   }
 
-  // Get holder statistics
   async getHolderStatistics() {
     return new Promise((resolve) => {
       this.db.all(`
@@ -351,7 +267,6 @@ class HolderTracker {
         
         const baseStats = rows[0];
         
-        // Get top holder balances
         this.db.all(
           'SELECT balance_numeric FROM holders ORDER BY balance_numeric DESC LIMIT 100',
           (err, topHolders) => {
@@ -380,7 +295,6 @@ class HolderTracker {
     });
   }
 
-  // Save scan progress
   async saveScanProgress(blockNumber) {
     return new Promise((resolve) => {
       this.db.run(
@@ -391,41 +305,35 @@ class HolderTracker {
     });
   }
 
-  // Quick update for known active addresses (called after each new block)
   async quickUpdateActiveAddresses(addresses) {
     if (addresses.length === 0) return;
     
     const uniqueAddresses = [...new Set(addresses.map(a => a.toLowerCase()))];
-    await this.updateTokenBalancesForAddresses(uniqueAddresses, 'latest');
+    await this.updateNativeBalancesForAddresses(uniqueAddresses, 'latest');
   }
 
-  // Scan recent blocks for new holders (more efficient for live updates)
   async scanRecentBlocks(fromBlock, toBlock) {
-    console.log(`Scanning recent blocks ${fromBlock} to ${toBlock} for new REACT holders`);
+    console.log(`Scanning recent blocks ${fromBlock} to ${toBlock} for activity`);
     
     try {
-      const events = await this.reactToken.getPastEvents('Transfer', {
-        fromBlock: fromBlock,
-        toBlock: toBlock
-      });
-      
       const addresses = new Set();
-      events.forEach(event => {
-        if (event.returnValues.from) {
-          addresses.add(event.returnValues.from.toLowerCase());
-        }
-        if (event.returnValues.to) {
-          addresses.add(event.returnValues.to.toLowerCase());
-        }
-      });
       
-      // Remove zero and dead addresses
-      addresses.delete('0x0000000000000000000000000000000000000000');
-      addresses.delete('0x000000000000000000000000000000000000dead');
+      for (let i = fromBlock; i <= toBlock; i++) {
+        try {
+          const block = await this.web3.eth.getBlock(i, true);
+          if (block && block.transactions) {
+            block.transactions.forEach(tx => {
+              if (tx.from) addresses.add(tx.from.toLowerCase());
+              if (tx.to) addresses.add(tx.to.toLowerCase());
+            });
+          }
+        } catch (err) {
+          // Skip failed blocks
+        }
+      }
       
       if (addresses.size > 0) {
-        console.log(`Found ${addresses.size} addresses in recent blocks to update`);
-        await this.updateTokenBalancesForAddresses(Array.from(addresses), 'latest');
+        await this.updateNativeBalancesForAddresses(Array.from(addresses), 'latest');
       }
       
       return addresses.size;
