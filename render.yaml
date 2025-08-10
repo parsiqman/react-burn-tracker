@@ -15,12 +15,16 @@ services:
         value: 10000
       - key: CHAIN_ID
         value: "1597"
+      # Optional: Add admin token for API endpoints
+      - key: ADMIN_TOKEN
+        generateValue: true  # Render will generate a secure random value
     disk:
       name: burns-data
       mountPath: /app/data
       sizeGB: 1
 
 jobs:
+  # Original historical sync job for burn transactions
   - type: job
     name: react-burn-historical-sync
     runtime: node
@@ -35,5 +39,158 @@ jobs:
         value: "0x0000000000000000000000000000000000fffFfF"
     disk:
       name: burns-data  # Same disk as main service - this is important!
+      mountPath: /app/data
+      sizeGB: 1
+
+  # Initialize holder tables (run once before other holder jobs)
+  - type: job
+    name: react-holder-init
+    runtime: node
+    buildCommand: npm install
+    startCommand: node scripts/init-holders.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: RPC_URL
+        value: https://mainnet-rpc.rnk.dev/
+      - key: REACT_TOKEN_ADDRESS
+        value: "0x0000000000000000000000000000000000fffFfF"
+    disk:
+      name: burns-data  # Same disk - IMPORTANT!
+      mountPath: /app/data
+      sizeGB: 1
+
+  # Quick holder scan - scans recent blocks (faster, ~30-60 minutes)
+  - type: job
+    name: react-holder-quick-scan
+    runtime: node
+    buildCommand: npm install
+    startCommand: node scripts/quick-holder-scan.js 10000
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: RPC_URL
+        value: https://mainnet-rpc.rnk.dev/
+    disk:
+      name: burns-data  # Same disk - IMPORTANT!
+      mountPath: /app/data
+      sizeGB: 1
+
+  # Full comprehensive holder scan (slow but complete, 10+ hours)
+  - type: job
+    name: react-holder-full-scan
+    runtime: node
+    buildCommand: npm install
+    startCommand: node scripts/scan-all-native-holders.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: RPC_URL
+        value: https://mainnet-rpc.rnk.dev/
+    disk:
+      name: burns-data  # Same disk - IMPORTANT!
+      mountPath: /app/data
+      sizeGB: 1
+
+  # Render-safe scanner that handles timeouts gracefully
+  - type: job
+    name: react-holder-safe-scan
+    runtime: node
+    buildCommand: npm install
+    startCommand: node scripts/render-holder-scan.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: RPC_URL
+        value: https://mainnet-rpc.rnk.dev/
+    disk:
+      name: burns-data  # Same disk - IMPORTANT!
+      mountPath: /app/data
+      sizeGB: 1
+
+  # Optional: Periodic holder balance update job
+  - type: job
+    name: react-holder-update
+    runtime: node
+    buildCommand: npm install
+    # This updates balances for existing holders only (faster)
+    startCommand: |
+      node -e "
+      const { Web3 } = require('web3');
+      const sqlite3 = require('sqlite3').verbose();
+      const HolderTracker = require('./scripts/holder-tracker');
+      
+      const web3 = new Web3(process.env.RPC_URL);
+      const db = new sqlite3.Database('/app/data/burns.db');
+      
+      async function updateHolders() {
+        console.log('Updating holder balances...');
+        const tracker = new HolderTracker(db, web3);
+        await tracker.initialize();
+        
+        // Get all current holder addresses
+        const addresses = await new Promise((resolve) => {
+          db.all('SELECT address FROM holders WHERE balance_numeric > 0 LIMIT 5000', (err, rows) => {
+            resolve(rows ? rows.map(r => r.address) : []);
+          });
+        });
+        
+        console.log('Updating balances for ' + addresses.length + ' holders...');
+        await tracker.updateNativeBalancesForAddresses(addresses, 'latest');
+        
+        // Save snapshot
+        const currentBlock = await web3.eth.getBlockNumber();
+        await tracker.saveHolderSnapshot(currentBlock);
+        
+        console.log('Update complete!');
+        db.close();
+      }
+      
+      updateHolders().catch(console.error);
+      "
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: RPC_URL
+        value: https://mainnet-rpc.rnk.dev/
+    disk:
+      name: burns-data
+      mountPath: /app/data
+      sizeGB: 1
+
+# Optional: Add cron jobs for periodic updates
+# Note: Cron jobs are only available on Render's paid plans
+cronJobs:
+  # Daily quick scan of recent blocks (runs at 2 AM UTC)
+  - type: cron
+    name: daily-holder-quick-scan
+    runtime: node
+    schedule: "0 2 * * *"  # Daily at 2 AM UTC
+    buildCommand: npm install
+    command: node scripts/quick-holder-scan.js 5000
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: RPC_URL
+        value: https://mainnet-rpc.rnk.dev/
+    disk:
+      name: burns-data
+      mountPath: /app/data
+      sizeGB: 1
+
+  # Weekly holder balance update (runs Sunday at 3 AM UTC)
+  - type: cron
+    name: weekly-holder-update
+    runtime: node
+    schedule: "0 3 * * 0"  # Sunday at 3 AM UTC
+    buildCommand: npm install
+    command: node scripts/quick-holder-scan.js 20000
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: RPC_URL
+        value: https://mainnet-rpc.rnk.dev/
+    disk:
+      name: burns-data
       mountPath: /app/data
       sizeGB: 1
