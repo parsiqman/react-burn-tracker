@@ -491,6 +491,26 @@
                 </div>
             </div>
 
+            <!-- Token Holders Card - NEW -->
+            <div class="stat-card" style="cursor: pointer; background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1)); border-color: rgba(102, 126, 234, 0.3); position: relative; overflow: hidden;" onclick="window.location.href='/holders.html'">
+                <div class="stat-header">
+                    <div class="stat-label">Token Holders</div>
+                    <div class="stat-icon">💎</div>
+                </div>
+                <div class="stat-value" style="font-size: 1.5rem; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">View Analytics</div>
+                <div class="stat-change">Rich list & holder distribution</div>
+                
+                <!-- Add a subtle hover indicator -->
+                <div style="position: absolute; bottom: 0.5rem; right: 0.5rem; font-size: 0.75rem; color: rgba(255, 255, 255, 0.5); display: flex; align-items: center; gap: 0.25rem;">
+                    Explore Holders <span style="font-size: 1rem;">→</span>
+                </div>
+                
+                <!-- Optional: Add a mini visualization -->
+                <div style="position: absolute; top: 0; right: 0; opacity: 0.1; font-size: 4rem; line-height: 1;">
+                    💎
+                </div>
+            </div>
+
             <!-- Distribution Analysis Card -->
             <div class="stat-card" style="cursor: pointer; background: rgba(255, 107, 107, 0.05); border-color: rgba(255, 107, 107, 0.2);" onclick="window.location.href='/distribution.html'">
                 <div class="stat-header">
@@ -650,7 +670,7 @@
                 
                 // Update UI
                 document.getElementById('totalBurned').textContent = formatNumber(total.totalBurned);
-                document.getElementById('totalBurnedUSD').textContent = `≈ $${formatNumber(total.totalUsdValue || (total.totalBurned * 0.0234))}`;
+                document.getElementById('totalBurnedUSD').textContent = `≈ ${formatNumber(total.totalUsdValue || (total.totalBurned * 0.065))}`;
                 document.getElementById('dailyBurn').textContent = formatNumber(daily.burned24h);
                 document.getElementById('totalTransactions').textContent = formatNumber(total.totalTransactions);
                 document.getElementById('uniqueAddresses').textContent = formatNumber(total.uniqueAddresses);
