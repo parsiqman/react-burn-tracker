@@ -1,0 +1,1545 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reactive Yield - Autonomous Yield Optimization</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/ethers@6.7.1/dist/ethers.umd.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary: #00D395;
+            --primary-dark: #00A87D;
+            --secondary: #7B3FF2;
+            --background: #0E0F14;
+            --surface: #1A1B23;
+            --surface-light: #21222C;
+            --surface-hover: #2A2B38;
+            --border: rgba(255, 255, 255, 0.08);
+            --border-light: rgba(255, 255, 255, 0.04);
+            --text-primary: #FFFFFF;
+            --text-secondary: rgba(255, 255, 255, 0.7);
+            --text-muted: rgba(255, 255, 255, 0.4);
+            --success: #21C55F;
+            --warning: #F59E0B;
+            --danger: #EF4444;
+            --chart-gradient-start: rgba(0, 211, 149, 0.2);
+            --chart-gradient-end: rgba(0, 211, 149, 0);
+            --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+            --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--background);
+            color: var(--text-primary);
+            line-height: 1.5;
+            font-size: 14px;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        /* Background Pattern */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-image: 
+                radial-gradient(circle at 20% 50%, rgba(0, 211, 149, 0.03) 0%, transparent 50%),
+                radial-gradient(circle at 80% 80%, rgba(123, 63, 242, 0.03) 0%, transparent 50%),
+                radial-gradient(circle at 40% 20%, rgba(0, 211, 149, 0.02) 0%, transparent 50%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        /* Navigation */
+        .nav {
+            position: sticky;
+            top: 0;
+            background: rgba(14, 15, 20, 0.95);
+            backdrop-filter: blur(24px);
+            border-bottom: 1px solid var(--border);
+            z-index: 50;
+            height: 64px;
+        }
+
+        .nav-container {
+            max-width: 1280px;
+            margin: 0 auto;
+            padding: 0 24px;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .nav-brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-weight: 600;
+            font-size: 18px;
+        }
+
+        .nav-brand svg {
+            width: 32px;
+            height: 32px;
+        }
+
+        .nav-menu {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .network-selector {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            color: var(--text-secondary);
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .network-selector:hover {
+            background: var(--surface-light);
+            border-color: rgba(255, 255, 255, 0.12);
+        }
+
+        .network-dot {
+            width: 8px;
+            height: 8px;
+            background: var(--success);
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .connect-wallet {
+            padding: 10px 20px;
+            background: var(--primary);
+            color: var(--background);
+            border: none;
+            border-radius: 12px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .connect-wallet:hover {
+            background: var(--primary-dark);
+            transform: translateY(-1px);
+        }
+
+        .connect-wallet.connected {
+            background: var(--surface);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+        }
+
+        /* Container */
+        .container {
+            max-width: 1280px;
+            margin: 0 auto;
+            padding: 24px;
+            position: relative;
+            z-index: 1;
+        }
+
+        /* Stats Bar */
+        .stats-bar {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .stat-item {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 20px;
+            position: relative;
+            overflow: hidden;
+            transition: all 0.2s;
+        }
+
+        .stat-item::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, var(--primary), var(--secondary));
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        .stat-item:hover {
+            background: var(--surface-light);
+            transform: translateY(-2px);
+        }
+
+        .stat-item:hover::before {
+            opacity: 1;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 8px;
+            font-weight: 600;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: 700;
+            margin-bottom: 8px;
+            letter-spacing: -0.02em;
+        }
+
+        .stat-change {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 8px;
+            background: rgba(33, 197, 95, 0.1);
+            color: var(--success);
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .stat-change.negative {
+            background: rgba(239, 68, 68, 0.1);
+            color: var(--danger);
+        }
+
+        /* Main Layout */
+        .main-layout {
+            display: grid;
+            grid-template-columns: 1fr 380px;
+            gap: 24px;
+        }
+
+        @media (max-width: 1024px) {
+            .main-layout {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Cards */
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            overflow: hidden;
+        }
+
+        .card-header {
+            padding: 24px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .card-title {
+            font-size: 16px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .card-subtitle {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+
+        .card-body {
+            padding: 24px;
+        }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 4px;
+            padding: 4px;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 12px;
+            margin-bottom: 24px;
+        }
+
+        .tab {
+            flex: 1;
+            padding: 10px;
+            background: transparent;
+            border: none;
+            border-radius: 8px;
+            color: var(--text-secondary);
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .tab:hover {
+            color: var(--text-primary);
+        }
+
+        .tab.active {
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-primary);
+        }
+
+        /* Chart Container */
+        .chart-wrapper {
+            position: relative;
+            height: 320px;
+            margin-bottom: 24px;
+        }
+
+        .chart-overlay {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            display: flex;
+            gap: 16px;
+            z-index: 10;
+        }
+
+        .chart-legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 12px;
+            background: rgba(26, 27, 35, 0.8);
+            backdrop-filter: blur(8px);
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .legend-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+
+        /* Pool List */
+        .pool-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .pool-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px;
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            transition: all 0.2s;
+            cursor: pointer;
+        }
+
+        .pool-item:hover {
+            background: rgba(255, 255, 255, 0.04);
+            transform: translateX(4px);
+        }
+
+        .pool-info {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .pool-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 18px;
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+        }
+
+        .pool-icon.aave {
+            background: linear-gradient(135deg, #B15EFF, #8B3DFF);
+        }
+
+        .pool-icon.compound {
+            background: linear-gradient(135deg, #00D395, #00A87D);
+        }
+
+        .pool-icon.morpho {
+            background: linear-gradient(135deg, #3B82F6, #1D4ED8);
+        }
+
+        .pool-details {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .pool-name {
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .pool-allocation {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .pool-metrics {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 2px;
+        }
+
+        .pool-apy {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--success);
+        }
+
+        .pool-value {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        /* Input Section */
+        .input-section {
+            margin-bottom: 24px;
+        }
+
+        .input-label {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 12px;
+            display: block;
+        }
+
+        .input-container {
+            position: relative;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+            transition: all 0.2s;
+        }
+
+        .input-container:hover {
+            border-color: rgba(255, 255, 255, 0.12);
+        }
+
+        .input-container:focus-within {
+            border-color: var(--primary);
+            background: rgba(0, 211, 149, 0.03);
+        }
+
+        .input-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+
+        .input-field {
+            background: none;
+            border: none;
+            color: var(--text-primary);
+            font-size: 28px;
+            font-weight: 600;
+            outline: none;
+            width: 100%;
+            letter-spacing: -0.02em;
+        }
+
+        .input-field::placeholder {
+            color: var(--text-muted);
+        }
+
+        .token-select {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            background: var(--surface-light);
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .token-select:hover {
+            background: var(--surface-hover);
+        }
+
+        .token-icon {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #2775CA, #1E5BA8);
+        }
+
+        .balance-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .balance-max {
+            color: var(--primary);
+            font-weight: 600;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+
+        .balance-max:hover {
+            opacity: 0.8;
+        }
+
+        /* Action Button */
+        .action-button {
+            width: 100%;
+            padding: 16px;
+            background: var(--primary);
+            color: var(--background);
+            border: none;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .action-button:hover:not(:disabled) {
+            background: var(--primary-dark);
+            transform: translateY(-1px);
+        }
+
+        .action-button:disabled {
+            background: var(--surface-hover);
+            color: var(--text-muted);
+            cursor: not-allowed;
+        }
+
+        .action-button.danger {
+            background: var(--danger);
+        }
+
+        .action-button.danger:hover:not(:disabled) {
+            background: #DC2626;
+        }
+
+        /* Info Box */
+        .info-box {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            padding: 16px;
+            background: rgba(0, 211, 149, 0.05);
+            border: 1px solid rgba(0, 211, 149, 0.2);
+            border-radius: 12px;
+            margin-bottom: 20px;
+        }
+
+        .info-box.warning {
+            background: rgba(245, 158, 11, 0.05);
+            border-color: rgba(245, 158, 11, 0.2);
+        }
+
+        .info-icon {
+            color: var(--primary);
+            font-size: 18px;
+            line-height: 1;
+        }
+
+        .info-box.warning .info-icon {
+            color: var(--warning);
+        }
+
+        .info-content {
+            flex: 1;
+        }
+
+        .info-title {
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .info-text {
+            font-size: 13px;
+            color: var(--text-secondary);
+            line-height: 1.5;
+        }
+
+        /* Activity Feed */
+        .activity-feed {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .activity-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 16px;
+            background: rgba(255, 255, 255, 0.02);
+            transition: all 0.2s;
+            cursor: pointer;
+        }
+
+        .activity-item:first-child {
+            border-radius: 12px 12px 0 0;
+        }
+
+        .activity-item:last-child {
+            border-radius: 0 0 12px 12px;
+        }
+
+        .activity-item:hover {
+            background: rgba(255, 255, 255, 0.04);
+        }
+
+        .activity-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .activity-icon {
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+        }
+
+        .activity-icon.rebalance {
+            background: rgba(0, 211, 149, 0.1);
+            color: var(--primary);
+        }
+
+        .activity-icon.deposit {
+            background: rgba(33, 197, 95, 0.1);
+            color: var(--success);
+        }
+
+        .activity-icon.withdraw {
+            background: rgba(239, 68, 68, 0.1);
+            color: var(--danger);
+        }
+
+        .activity-details {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .activity-title {
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        .activity-subtitle {
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+
+        .activity-right {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 2px;
+        }
+
+        .activity-amount {
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .activity-time {
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+
+        /* Performance Metrics */
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 16px;
+            padding: 20px;
+            background: rgba(255, 255, 255, 0.02);
+            border-radius: 12px;
+        }
+
+        .metric-item {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .metric-label {
+            font-size: 11px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            font-weight: 600;
+        }
+
+        .metric-value {
+            font-size: 18px;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+        }
+
+        .metric-value.positive {
+            color: var(--success);
+        }
+
+        /* Loading State */
+        .spinner {
+            width: 16px;
+            height: 16px;
+            border: 2px solid var(--primary);
+            border-top-color: transparent;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            display: inline-block;
+            margin-right: 8px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Toast Notification */
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            padding: 16px 20px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            box-shadow: var(--shadow-xl);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            z-index: 100;
+            animation: slideUp 0.3s ease;
+        }
+
+        @keyframes slideUp {
+            from {
+                transform: translateY(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        .toast-icon {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+        }
+
+        .toast.success .toast-icon {
+            background: var(--success);
+            color: white;
+        }
+
+        .toast.error .toast-icon {
+            background: var(--danger);
+            color: white;
+        }
+
+        .toast-message {
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        /* Responsive */
+        @media (max-width: 640px) {
+            .stats-bar {
+                grid-template-columns: 1fr;
+            }
+            
+            .nav-container {
+                padding: 0 16px;
+            }
+            
+            .container {
+                padding: 16px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="nav">
+        <div class="nav-container">
+            <div class="nav-brand">
+                <svg viewBox="0 0 32 32" fill="none">
+                    <rect width="32" height="32" rx="8" fill="url(#gradient)"/>
+                    <path d="M16 8L22 14L16 20L10 14L16 8Z" fill="white" opacity="0.9"/>
+                    <path d="M16 12L20 16L16 20L12 16L16 12Z" fill="white"/>
+                    <defs>
+                        <linearGradient id="gradient" x1="0" y1="0" x2="32" y2="32">
+                            <stop stop-color="#00D395"/>
+                            <stop offset="1" stop-color="#00A87D"/>
+                        </linearGradient>
+                    </defs>
+                </svg>
+                <span>Reactive Yield</span>
+            </div>
+            <div class="nav-menu">
+                <div class="network-selector">
+                    <div class="network-dot"></div>
+                    <span>Ethereum</span>
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+                        <path d="M3 5L6 8L9 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                    </svg>
+                </div>
+                <button class="connect-wallet" id="connectBtn">
+                    Connect Wallet
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Container -->
+    <div class="container">
+        <!-- Stats Bar -->
+        <div class="stats-bar">
+            <div class="stat-item">
+                <div class="stat-label">Total Value Locked</div>
+                <div class="stat-value">$124.8M</div>
+                <div class="stat-change">
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+                        <path d="M6 2L10 7H2L6 2Z"/>
+                    </svg>
+                    12.4%
+                </div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">Optimized APY</div>
+                <div class="stat-value">18.42%</div>
+                <div class="stat-change">
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+                        <path d="M6 2L10 7H2L6 2Z"/>
+                    </svg>
+                    +3.2% vs Base
+                </div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">Your Position</div>
+                <div class="stat-value" id="userPosition">$0.00</div>
+                <div class="stat-change" id="userPnl">
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+                        <path d="M2 6H10" stroke="currentColor" stroke-width="2"/>
+                    </svg>
+                    0.00%
+                </div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">24h Rebalances</div>
+                <div class="stat-value">47</div>
+                <div class="stat-change">
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+                        <path d="M6 2V10M2 6H10" stroke="currentColor" stroke-width="1.5"/>
+                    </svg>
+                    Active
+                </div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">Gas Optimized</div>
+                <div class="stat-value">$847K</div>
+                <div class="stat-change">
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+                        <path d="M6 2L10 7H2L6 2Z"/>
+                    </svg>
+                    Saved
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Layout -->
+        <div class="main-layout">
+            <!-- Left Column -->
+            <div>
+                <!-- Performance Chart -->
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">
+                            <div>
+                                <div>Performance Analytics</div>
+                                <div class="card-subtitle">Optimized yield vs. static strategy comparison</div>
+                            </div>
+                            <div class="chart-overlay">
+                                <div class="chart-legend-item">
+                                    <div class="legend-dot" style="background: var(--primary)"></div>
+                                    <span>Optimized</span>
+                                </div>
+                                <div class="chart-legend-item">
+                                    <div class="legend-dot" style="background: var(--text-muted)"></div>
+                                    <span>Baseline</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="tabs">
+                            <button class="tab active" data-period="24h">24H</button>
+                            <button class="tab" data-period="7d">7D</button>
+                            <button class="tab" data-period="1m">1M</button>
+                            <button class="tab" data-period="3m">3M</button>
+                            <button class="tab" data-period="1y">1Y</button>
+                            <button class="tab" data-period="all">ALL</button>
+                        </div>
+                        <div class="chart-wrapper">
+                            <canvas id="performanceChart"></canvas>
+                        </div>
+                        <div class="metrics-grid">
+                            <div class="metric-item">
+                                <div class="metric-label">Total Return</div>
+                                <div class="metric-value positive">+$47,832</div>
+                            </div>
+                            <div class="metric-item">
+                                <div class="metric-label">Outperformance</div>
+                                <div class="metric-value positive">+$8,421</div>
+                            </div>
+                            <div class="metric-item">
+                                <div class="metric-label">Win Rate</div>
+                                <div class="metric-value">94.7%</div>
+                            </div>
+                            <div class="metric-item">
+                                <div class="metric-label">Sharpe Ratio</div>
+                                <div class="metric-value">2.84</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Active Allocations -->
+                <div class="card" style="margin-top: 24px;">
+                    <div class="card-header">
+                        <div class="card-title">
+                            <div>
+                                <div>Active Allocations</div>
+                                <div class="card-subtitle">Current distribution across lending markets</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="pool-list">
+                            <div class="pool-item">
+                                <div class="pool-info">
+                                    <div class="pool-icon aave">A</div>
+                                    <div class="pool-details">
+                                        <div class="pool-name">Aave V3</div>
+                                        <div class="pool-allocation">45% allocation • Ethereum</div>
+                                    </div>
+                                </div>
+                                <div class="pool-metrics">
+                                    <div class="pool-apy">16.8% APY</div>
+                                    <div class="pool-value">$2,847,320</div>
+                                </div>
+                            </div>
+                            <div class="pool-item">
+                                <div class="pool-info">
+                                    <div class="pool-icon compound">C</div>
+                                    <div class="pool-details">
+                                        <div class="pool-name">Compound V3</div>
+                                        <div class="pool-allocation">35% allocation • Ethereum</div>
+                                    </div>
+                                </div>
+                                <div class="pool-metrics">
+                                    <div class="pool-apy">19.2% APY</div>
+                                    <div class="pool-value">$1,984,450</div>
+                                </div>
+                            </div>
+                            <div class="pool-item">
+                                <div class="pool-info">
+                                    <div class="pool-icon morpho">M</div>
+                                    <div class="pool-details">
+                                        <div class="pool-name">Morpho Blue</div>
+                                        <div class="pool-allocation">20% allocation • Ethereum</div>
+                                    </div>
+                                </div>
+                                <div class="pool-metrics">
+                                    <div class="pool-apy">17.4% APY</div>
+                                    <div class="pool-value">$892,100</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Column -->
+            <div>
+                <!-- Deposit/Withdraw -->
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">Manage Position</div>
+                    </div>
+                    <div class="card-body">
+                        <div class="tabs">
+                            <button class="tab active" id="depositTab">Deposit</button>
+                            <button class="tab" id="withdrawTab">Withdraw</button>
+                        </div>
+
+                        <div id="depositPanel">
+                            <div class="input-section">
+                                <label class="input-label">Amount</label>
+                                <div class="input-container">
+                                    <div class="input-row">
+                                        <input type="text" class="input-field" placeholder="0.00" id="depositInput">
+                                        <div class="token-select">
+                                            <div class="token-icon"></div>
+                                            <span>USDC</span>
+                                        </div>
+                                    </div>
+                                    <div class="balance-row">
+                                        <span>Balance: 10,000.00 USDC</span>
+                                        <span class="balance-max" id="maxDeposit">MAX</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="info-box">
+                                <div class="info-icon">ℹ</div>
+                                <div class="info-content">
+                                    <div class="info-title">Automated Optimization</div>
+                                    <div class="info-text">Your funds will be automatically allocated across the highest-yielding pools using Reactive Network's autonomous rebalancing.</div>
+                                </div>
+                            </div>
+
+                            <button class="action-button" id="depositButton">
+                                Connect Wallet to Deposit
+                            </button>
+                        </div>
+
+                        <div id="withdrawPanel" style="display: none;">
+                            <div class="input-section">
+                                <label class="input-label">Amount</label>
+                                <div class="input-container">
+                                    <div class="input-row">
+                                        <input type="text" class="input-field" placeholder="0.00" id="withdrawInput">
+                                        <div class="token-select">
+                                            <div class="token-icon"></div>
+                                            <span>USDC</span>
+                                        </div>
+                                    </div>
+                                    <div class="balance-row">
+                                        <span>Deposited: 0.00 USDC</span>
+                                        <span class="balance-max" id="maxWithdraw">MAX</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="info-box warning">
+                                <div class="info-icon">⚠</div>
+                                <div class="info-content">
+                                    <div class="info-title">Withdrawal Notice</div>
+                                    <div class="info-text">Funds will be withdrawn from all active positions. This may take 2-3 blocks to complete.</div>
+                                </div>
+                            </div>
+
+                            <button class="action-button danger" id="withdrawButton">
+                                Connect Wallet to Withdraw
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Recent Activity -->
+                <div class="card" style="margin-top: 24px;">
+                    <div class="card-header">
+                        <div class="card-title">
+                            <div>
+                                <div>Recent Activity</div>
+                                <div class="card-subtitle">Latest rebalancing and user transactions</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-body" style="padding: 0;">
+                        <div class="activity-feed">
+                            <div class="activity-item">
+                                <div class="activity-left">
+                                    <div class="activity-icon rebalance">⚡</div>
+                                    <div class="activity-details">
+                                        <div class="activity-title">Auto-Rebalance</div>
+                                        <div class="activity-subtitle">Aave → Compound</div>
+                                    </div>
+                                </div>
+                                <div class="activity-right">
+                                    <div class="activity-amount">$450,000</div>
+                                    <div class="activity-time">2 min ago</div>
+                                </div>
+                            </div>
+                            <div class="activity-item">
+                                <div class="activity-left">
+                                    <div class="activity-icon deposit">↓</div>
+                                    <div class="activity-details">
+                                        <div class="activity-title">Deposit</div>
+                                        <div class="activity-subtitle">0x8f3...2d1a</div>
+                                    </div>
+                                </div>
+                                <div class="activity-right">
+                                    <div class="activity-amount">+50,000 USDC</div>
+                                    <div class="activity-time">14 min ago</div>
+                                </div>
+                            </div>
+                            <div class="activity-item">
+                                <div class="activity-left">
+                                    <div class="activity-icon rebalance">⚡</div>
+                                    <div class="activity-details">
+                                        <div class="activity-title">Auto-Rebalance</div>
+                                        <div class="activity-subtitle">Compound → Morpho</div>
+                                    </div>
+                                </div>
+                                <div class="activity-right">
+                                    <div class="activity-amount">$280,000</div>
+                                    <div class="activity-time">47 min ago</div>
+                                </div>
+                            </div>
+                            <div class="activity-item">
+                                <div class="activity-left">
+                                    <div class="activity-icon withdraw">↑</div>
+                                    <div class="activity-details">
+                                        <div class="activity-title">Withdraw</div>
+                                        <div class="activity-subtitle">0x2a9...8c3f</div>
+                                    </div>
+                                </div>
+                                <div class="activity-right">
+                                    <div class="activity-amount">-25,000 USDC</div>
+                                    <div class="activity-time">1 hr ago</div>
+                                </div>
+                            </div>
+                            <div class="activity-item">
+                                <div class="activity-left">
+                                    <div class="activity-icon rebalance">⚡</div>
+                                    <div class="activity-details">
+                                        <div class="activity-title">Auto-Rebalance</div>
+                                        <div class="activity-subtitle">Morpho → Aave</div>
+                                    </div>
+                                </div>
+                                <div class="activity-right">
+                                    <div class="activity-amount">$180,000</div>
+                                    <div class="activity-time">2 hr ago</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Chart Configuration
+        const ctx = document.getElementById('performanceChart').getContext('2d');
+        
+        const gradient = ctx.createLinearGradient(0, 0, 0, 320);
+        gradient.addColorStop(0, 'rgba(0, 211, 149, 0.2)');
+        gradient.addColorStop(1, 'rgba(0, 211, 149, 0)');
+
+        const chartData = {
+            labels: [],
+            datasets: [{
+                label: 'Optimized Strategy',
+                data: [],
+                borderColor: '#00D395',
+                backgroundColor: gradient,
+                tension: 0.4,
+                borderWidth: 2,
+                pointRadius: 0,
+                pointHoverRadius: 4,
+                pointBackgroundColor: '#00D395',
+                fill: true
+            }, {
+                label: 'Static Baseline',
+                data: [],
+                borderColor: 'rgba(255, 255, 255, 0.3)',
+                backgroundColor: 'transparent',
+                tension: 0.4,
+                borderWidth: 1,
+                borderDash: [5, 5],
+                pointRadius: 0,
+                pointHoverRadius: 4,
+                pointBackgroundColor: 'rgba(255, 255, 255, 0.3)',
+                fill: false
+            }]
+        };
+
+        const chartConfig = {
+            type: 'line',
+            data: chartData,
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(26, 27, 35, 0.95)',
+                        titleColor: '#FFFFFF',
+                        bodyColor: 'rgba(255, 255, 255, 0.7)',
+                        borderColor: 'rgba(255, 255, 255, 0.08)',
+                        borderWidth: 1,
+                        padding: 12,
+                        cornerRadius: 8,
+                        displayColors: false,
+                        callbacks: {
+                            label: function(context) {
+                                const label = context.dataset.label;
+                                const value = '$' + context.parsed.y.toLocaleString();
+                                return label + ': ' + value;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: {
+                            color: 'rgba(255, 255, 255, 0.04)',
+                            drawBorder: false
+                        },
+                        ticks: {
+                            color: 'rgba(255, 255, 255, 0.4)',
+                            font: {
+                                size: 11,
+                                family: 'Inter'
+                            },
+                            maxRotation: 0
+                        }
+                    },
+                    y: {
+                        grid: {
+                            color: 'rgba(255, 255, 255, 0.04)',
+                            drawBorder: false
+                        },
+                        ticks: {
+                            color: 'rgba(255, 255, 255, 0.4)',
+                            font: {
+                                size: 11,
+                                family: 'Inter'
+                            },
+                            callback: function(value) {
+                                return '$' + (value / 1000) + 'k';
+                            }
+                        }
+                    }
+                }
+            }
+        };
+
+        const performanceChart = new Chart(ctx, chartConfig);
+
+        // Generate chart data
+        function generateChartData(period) {
+            const points = {
+                '24h': 24,
+                '7d': 7 * 6,
+                '1m': 30,
+                '3m': 90,
+                '1y': 52,
+                'all': 100
+            };
+
+            const numPoints = points[period] || 24;
+            const labels = [];
+            const optimizedData = [];
+            const baselineData = [];
+
+            let baseValue = 100000;
+            let optimizedValue = baseValue;
+            let baselineValue = baseValue;
+
+            for (let i = 0; i < numPoints; i++) {
+                // Generate labels based on period
+                if (period === '24h') {
+                    labels.push(i + ':00');
+                } else if (period === '7d') {
+                    labels.push(`Day ${Math.floor(i / 6) + 1}`);
+                } else if (period === '1m') {
+                    labels.push(`${i + 1}`);
+                } else if (period === '3m') {
+                    labels.push(`Week ${Math.floor(i / 7) + 1}`);
+                } else if (period === '1y') {
+                    labels.push(`W${i + 1}`);
+                } else {
+                    labels.push(`${i}`);
+                }
+
+                // Simulate growth
+                optimizedValue *= 1 + (Math.random() * 0.003 + 0.002);
+                baselineValue *= 1 + (Math.random() * 0.002 + 0.001);
+
+                optimizedData.push(Math.round(optimizedValue));
+                baselineData.push(Math.round(baselineValue));
+            }
+
+            return { labels, optimizedData, baselineData };
+        }
+
+        // Update chart
+        function updateChart(period) {
+            const data = generateChartData(period);
+            performanceChart.data.labels = data.labels;
+            performanceChart.data.datasets[0].data = data.optimizedData;
+            performanceChart.data.datasets[1].data = data.baselineData;
+            performanceChart.update();
+        }
+
+        // Initialize chart
+        updateChart('24h');
+
+        // Tab switching
+        document.querySelectorAll('.tab[data-period]').forEach(tab => {
+            tab.addEventListener('click', function() {
+                document.querySelectorAll('.tab[data-period]').forEach(t => t.classList.remove('active'));
+                this.classList.add('active');
+                updateChart(this.dataset.period);
+            });
+        });
+
+        // Deposit/Withdraw tabs
+        const depositTab = document.getElementById('depositTab');
+        const withdrawTab = document.getElementById('withdrawTab');
+        const depositPanel = document.getElementById('depositPanel');
+        const withdrawPanel = document.getElementById('withdrawPanel');
+
+        depositTab.addEventListener('click', () => {
+            depositTab.classList.add('active');
+            withdrawTab.classList.remove('active');
+            depositPanel.style.display = 'block';
+            withdrawPanel.style.display = 'none';
+        });
+
+        withdrawTab.addEventListener('click', () => {
+            withdrawTab.classList.add('active');
+            depositTab.classList.remove('active');
+            withdrawPanel.style.display = 'block';
+            depositPanel.style.display = 'none';
+        });
+
+        // Wallet connection
+        let isConnected = false;
+        let userAddress = null;
+        const connectBtn = document.getElementById('connectBtn');
+        const depositButton = document.getElementById('depositButton');
+        const withdrawButton = document.getElementById('withdrawButton');
+
+        connectBtn.addEventListener('click', async () => {
+            if (!isConnected && typeof window.ethereum !== 'undefined') {
+                try {
+                    const accounts = await window.ethereum.request({ 
+                        method: 'eth_requestAccounts' 
+                    });
+                    
+                    if (accounts.length > 0) {
+                        userAddress = accounts[0];
+                        isConnected = true;
+                        const shortAddress = userAddress.slice(0, 6) + '...' + userAddress.slice(-4);
+                        connectBtn.textContent = shortAddress;
+                        connectBtn.classList.add('connected');
+                        
+                        // Update UI
+                        depositButton.textContent = 'Deposit USDC';
+                        withdrawButton.textContent = 'Withdraw USDC';
+                        document.getElementById('userPosition').textContent = '$12,847.32';
+                        document.getElementById('userPnl').innerHTML = '<svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><path d="M6 2L10 7H2L6 2Z"/></svg>+18.4%';
+                        document.getElementById('userPnl').classList.add('positive');
+                        
+                        showToast('Wallet connected successfully', 'success');
+                    }
+                } catch (error) {
+                    showToast('Failed to connect wallet', 'error');
+                }
+            }
+        });
+
+        // Max buttons
+        document.getElementById('maxDeposit').addEventListener('click', () => {
+            document.getElementById('depositInput').value = '10000.00';
+        });
+
+        document.getElementById('maxWithdraw').addEventListener('click', () => {
+            document.getElementById('withdrawInput').value = '12847.32';
+        });
+
+        // Deposit/Withdraw actions
+        depositButton.addEventListener('click', async () => {
+            if (!isConnected) {
+                connectBtn.click();
+                return;
+            }
+
+            const amount = document.getElementById('depositInput').value;
+            if (!amount || parseFloat(amount) <= 0) {
+                showToast('Please enter a valid amount', 'error');
+                return;
+            }
+
+            depositButton.innerHTML = '<span class="spinner"></span>Processing...';
+            depositButton.disabled = true;
+
+            setTimeout(() => {
+                depositButton.innerHTML = 'Deposit USDC';
+                depositButton.disabled = false;
+                document.getElementById('depositInput').value = '';
+                showToast(`Successfully deposited ${amount} USDC`, 'success');
+                
+                // Update position
+                const currentPosition = parseFloat(document.getElementById('userPosition').textContent.replace('$', '').replace(',', ''));
+                const newPosition = currentPosition + parseFloat(amount);
+                document.getElementById('userPosition').textContent = '$' + newPosition.toLocaleString('en-US', {minimumFractionDigits: 2});
+            }, 2000);
+        });
+
+        withdrawButton.addEventListener('click', async () => {
+            if (!isConnected) {
+                connectBtn.click();
+                return;
+            }
+
+            const amount = document.getElementById('withdrawInput').value;
+            if (!amount || parseFloat(amount) <= 0) {
+                showToast('Please enter a valid amount', 'error');
+                return;
+            }
+
+            withdrawButton.innerHTML = '<span class="spinner"></span>Processing...';
+            withdrawButton.disabled = true;
+
+            setTimeout(() => {
+                withdrawButton.innerHTML = 'Withdraw USDC';
+                withdrawButton.disabled = false;
+                document.getElementById('withdrawInput').value = '';
+                showToast(`Successfully withdrew ${amount} USDC`, 'success');
+                
+                // Update position
+                const currentPosition = parseFloat(document.getElementById('userPosition').textContent.replace('$', '').replace(',', ''));
+                const newPosition = Math.max(0, currentPosition - parseFloat(amount));
+                document.getElementById('userPosition').textContent = '$' + newPosition.toLocaleString('en-US', {minimumFractionDigits: 2});
+            }, 2000);
+        });
+
+        // Toast notification
+        function showToast(message, type = 'success') {
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.innerHTML = `
+                <div class="toast-icon">${type === 'success' ? '✓' : '!'}</div>
+                <div class="toast-message">${message}</div>
+            `;
+            
+            document.body.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.style.animation = 'slideUp 0.3s ease reverse';
+                setTimeout(() => {
+                    document.body.removeChild(toast);
+                }, 300);
+            }, 3000);
+        }
+
+        // Simulate real-time updates
+        setInterval(() => {
+            // Update APYs
+            document.querySelectorAll('.pool-apy').forEach(el => {
+                const currentAPY = parseFloat(el.textContent);
+                const newAPY = (currentAPY + (Math.random() - 0.5) * 0.2).toFixed(1);
+                el.textContent = newAPY + '% APY';
+            });
+
+            // Update optimized APY
+            const apyEl = document.querySelectorAll('.stat-value')[1];
+            const currentAPY = parseFloat(apyEl.textContent);
+            const newAPY = (currentAPY + (Math.random() - 0.5) * 0.1).toFixed(2);
+            apyEl.textContent = newAPY + '%';
+        }, 5000);
+
+        // Auto-rebalance notification
+        setTimeout(() => {
+            showToast('Auto-rebalance executed: Moved $280K to Compound (+2.4% APY)', 'success');
+        }, 10000);
+
+        // Check for existing connection
+        window.addEventListener('load', async () => {
+            if (typeof window.ethereum !== 'undefined') {
+                const accounts = await window.ethereum.request({ method: 'eth_accounts' });
+                if (accounts.length > 0) {
+                    userAddress = accounts[0];
+                    isConnected = true;
+                    const shortAddress = userAddress.slice(0, 6) + '...' + userAddress.slice(-4);
+                    connectBtn.textContent = shortAddress;
+                    connectBtn.classList.add('connected');
+                    depositButton.textContent = 'Deposit USDC';
+                    withdrawButton.textContent = 'Withdraw USDC';
+                }
+            }
+        });
+    </script>
+</body>
+</html>
