@@ -37,6 +37,7 @@
             --gradient-purple: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             --gradient-teal: linear-gradient(135deg, #4ECDC4 0%, #44A08D 100%);
             --gradient-yield: linear-gradient(135deg, #00D395 0%, #00A87D 100%);
+            --gradient-ecosystem: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
             --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
             --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
             --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
@@ -407,11 +408,60 @@
             border-color: rgba(0, 211, 149, 0.3);
         }
 
+        .stat-card.ecosystem-card {
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(139, 92, 246, 0.15));
+            border: 2px solid;
+            border-image: linear-gradient(135deg, #3B82F6, #8B5CF6) 1;
+            box-shadow: 0 0 30px rgba(59, 130, 246, 0.2);
+            transform: scale(1.02);
+        }
+
+        .stat-card.ecosystem-card:hover {
+            transform: translateY(-6px) scale(1.03);
+            box-shadow: 0 10px 40px rgba(59, 130, 246, 0.3);
+        }
+
+        .ecosystem-pulse {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            width: 12px;
+            height: 12px;
+            background: #3B82F6;
+            border-radius: 50%;
+            animation: ecosystem-pulse 2s infinite;
+        }
+
+        @keyframes ecosystem-pulse {
+            0% {
+                box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7);
+            }
+            70% {
+                box-shadow: 0 0 0 10px rgba(59, 130, 246, 0);
+            }
+            100% {
+                box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
+            }
+        }
+
         .demo-badge {
             display: inline-block;
             padding: 4px 8px;
             background: rgba(255, 217, 61, 0.2);
             color: var(--warning);
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-left: 8px;
+        }
+
+        .live-badge {
+            display: inline-block;
+            padding: 4px 8px;
+            background: rgba(81, 207, 102, 0.2);
+            color: var(--success);
             border-radius: 6px;
             font-size: 11px;
             font-weight: 600;
@@ -631,6 +681,28 @@
 
         <!-- Stats Grid -->
         <div class="stats-grid">
+            <!-- Ecosystem Monitor Card - FEATURED -->
+            <div class="stat-card special ecosystem-card" onclick="window.location.href='/ecosystem.html'">
+                <div class="ecosystem-pulse"></div>
+                <div class="stat-header">
+                    <div class="stat-label">
+                        Ecosystem Monitor
+                        <span class="live-badge">LIVE</span>
+                    </div>
+                    <div class="stat-icon">🌐</div>
+                </div>
+                <div class="stat-value" style="font-size: 24px; background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Live Network Activity</div>
+                <div class="ecosystem-logos" style="display: flex; align-items: center; gap: 12px; margin-top: 12px; justify-content: center;">
+                    <div style="width: 36px; height: 36px; background: linear-gradient(135deg, #667eea, #764ba2); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-weight: bold; color: white; font-size: 16px;">Q</div>
+                    <div style="width: 36px; height: 36px; background: linear-gradient(135deg, #51CF66, #21C55F); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-weight: bold; color: white; font-size: 16px;">W</div>
+                    <div style="width: 36px; height: 36px; background: rgba(255, 255, 255, 0.1); border: 2px dashed rgba(255, 255, 255, 0.2); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: rgba(255, 255, 255, 0.3); font-size: 20px;">+</div>
+                </div>
+                <div class="card-bg-icon">🌐</div>
+                <div class="card-hover-text">
+                    Explore Ecosystem <span>→</span>
+                </div>
+            </div>
+
             <!-- 24h Burn Volume -->
             <div class="stat-card">
                 <div class="stat-header">
@@ -646,7 +718,7 @@
                 </div>
             </div>
 
-            <!-- Total Transactions (renamed from Burn Transactions) -->
+            <!-- Total Transactions -->
             <div class="stat-card">
                 <div class="stat-header">
                     <div class="stat-label">Total Transactions</div>
@@ -664,26 +736,6 @@
                 </div>
                 <div class="stat-value" id="uniqueAddresses"><div class="skeleton"></div></div>
                 <div class="stat-change" id="addressChange">Loading...</div>
-            </div>
-
-            <!-- Average Burn -->
-            <div class="stat-card">
-                <div class="stat-header">
-                    <div class="stat-label">Average Burn</div>
-                    <div class="stat-icon">📈</div>
-                </div>
-                <div class="stat-value" id="avgBurn"><div class="skeleton"></div></div>
-                <div class="stat-change">per transaction</div>
-            </div>
-
-            <!-- Burn Rate -->
-            <div class="stat-card">
-                <div class="stat-header">
-                    <div class="stat-label">Burn Rate</div>
-                    <div class="stat-icon">⚡</div>
-                </div>
-                <div class="stat-value" id="burnRate"><div class="skeleton"></div></div>
-                <div class="stat-change">REACT/hour</div>
             </div>
 
             <!-- Power Users Card -->
@@ -742,7 +794,7 @@
                 </div>
             </div>
 
-            <!-- NEW: Reactive Yield Demo Card -->
+            <!-- Reactive Yield Demo Card -->
             <div class="stat-card special yield-card" onclick="window.location.href='/reactiveyield.html'">
                 <div class="stat-header">
                     <div class="stat-label">
@@ -884,15 +936,13 @@
         // API calls
         async function fetchStats() {
             try {
-                const [totalRes, dailyRes, rateRes] = await Promise.all([
+                const [totalRes, dailyRes] = await Promise.all([
                     fetch(`${API_URL}/api/stats/total`),
-                    fetch(`${API_URL}/api/stats/24h`),
-                    fetch(`${API_URL}/api/stats/burn-rate`)
+                    fetch(`${API_URL}/api/stats/24h`)
                 ]);
                 
                 const total = await totalRes.json();
                 const daily = await dailyRes.json();
-                const rate = await rateRes.json();
                 
                 // Update hero stats with animation
                 const heroValue = document.getElementById('totalBurned');
@@ -907,11 +957,6 @@
                 document.getElementById('dailyBurn').textContent = formatNumber(daily.burned24h);
                 document.getElementById('totalTransactions').textContent = formatNumber(total.totalTransactions);
                 document.getElementById('uniqueAddresses').textContent = formatNumber(total.uniqueAddresses);
-                document.getElementById('burnRate').textContent = formatNumber(rate.burnRate);
-                
-                // Calculate average burn
-                const avgBurn = total.totalTransactions > 0 ? total.totalBurned / total.totalTransactions : 0;
-                document.getElementById('avgBurn').textContent = formatNumber(avgBurn);
                 
                 // Update changes with better formatting
                 const dailyChangeEl = document.getElementById('dailyChange');
