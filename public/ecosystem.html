@@ -194,6 +194,33 @@
             color: var(--text-muted);
         }
 
+        /* Overview Stats */
+        .overview-stats {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 24px;
+        }
+
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .stat-value {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--secondary);
+        }
+
         /* Company List */
         .company-list {
             margin-top: 24px;
@@ -270,26 +297,6 @@
             50% { opacity: 0.5; }
         }
 
-        @keyframes rotate {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
-        }
-
-        @keyframes pulse-ring {
-            0% {
-                stroke-opacity: 0.4;
-                stroke-width: 1;
-            }
-            50% {
-                stroke-opacity: 0;
-                stroke-width: 3;
-            }
-            100% {
-                stroke-opacity: 0;
-                stroke-width: 1;
-            }
-        }
-
         .company-address {
             font-family: 'Monaco', 'Courier New', monospace;
             font-size: 11px;
@@ -316,6 +323,39 @@
         .metric-label {
             color: var(--text-muted);
             font-size: 10px;
+        }
+
+        /* Activity Feed */
+        .activity-feed-section {
+            margin-top: 24px;
+            padding: 16px;
+            background: rgba(78, 205, 196, 0.05);
+            border: 1px solid rgba(78, 205, 196, 0.2);
+            border-radius: 12px;
+        }
+
+        .activity-feed-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--secondary);
+            margin-bottom: 12px;
+        }
+
+        #activityFeed {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .activity-item {
+            background: rgba(255, 255, 255, 0.03);
+            margin: 8px 0;
+            padding: 12px;
+            border-radius: 8px;
+            transition: all 0.2s ease;
+        }
+
+        .activity-item:hover {
+            background: rgba(255, 255, 255, 0.05);
         }
 
         /* Visualization Area */
@@ -410,6 +450,29 @@
             text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
         }
 
+        /* Loading State */
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            color: var(--text-muted);
+        }
+
+        .loading-spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid var(--border);
+            border-top-color: var(--secondary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 10px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
         /* Responsive */
         @media (max-width: 1024px) {
             .sidebar {
@@ -457,18 +520,42 @@
                 <div class="sidebar-subtitle">Real-time business activity on Reactive Network</div>
             </div>
 
+            <!-- Overview Stats -->
+            <div class="overview-stats">
+                <div class="stat-row">
+                    <span class="stat-label">Total Companies</span>
+                    <span class="stat-value" id="totalCompanies">-</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Total Transactions</span>
+                    <span class="stat-value" id="totalTransactions">-</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">24h Volume</span>
+                    <span class="stat-value" id="dailyVolume">-</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Avg Gas Used</span>
+                    <span class="stat-value" id="avgGasUsed">-</span>
+                </div>
+            </div>
+
             <!-- Company List -->
             <div class="company-list" id="companyList">
-                <!-- Companies will be added here dynamically -->
-            </div>
-            
-            <!-- Add New Company Section -->
-            <div style="margin-top: 24px; padding: 16px; background: rgba(78, 205, 196, 0.05); border: 1px solid rgba(78, 205, 196, 0.2); border-radius: 12px;">
-                <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 8px;">
-                    🔍 Discovering New Companies
+                <div class="loading">
+                    <div class="loading-spinner"></div>
+                    Loading companies...
                 </div>
-                <div style="font-size: 11px; color: var(--text-muted); line-height: 1.5;">
-                    The ecosystem is growing. As new companies integrate with Reactive Network, they'll automatically appear here.
+            </div>
+
+            <!-- Activity Feed -->
+            <div class="activity-feed-section">
+                <div class="activity-feed-title">Recent Activity</div>
+                <div id="activityFeed">
+                    <div class="loading">
+                        <div class="loading-spinner"></div>
+                        Loading activity...
+                    </div>
                 </div>
             </div>
         </div>
@@ -504,343 +591,485 @@
     <div class="tooltip" id="tooltip"></div>
 
     <script>
-        // Company data with contract addresses - REAL COMPANIES ONLY
-        const companies = [
-            {
-                id: 'reactive',
-                name: 'Reactive Network',
-                type: 'core',
-                address: '0x0000000000000000000000000000000000fffFfF',
-                description: 'Core Network Protocol',
-                transactions: 45832,
-                volume: '2.4M REACT',
-                status: 'active'
-            },
-            {
-                id: 'qstn',
-                name: 'QSTN',
-                type: 'platform',
-                address: '0x05f5e6b7972275535a5A99A85b7e85821E752CF1',
-                description: 'Web3 Survey & Quest Platform',
-                transactions: 3247,
-                volume: '125K REACT',
-                status: 'active'
-            },
-            {
-                id: 'world-of-rogues',
-                name: 'World of Rogues',
-                type: 'gaming',
-                address: '0xC5Bd3532198e2D561f817c22524D1F6f10415bc2',
-                description: 'On-chain Gaming Platform',
-                transactions: 1856,
-                volume: '87K REACT',
-                status: 'active'
+        // Global variables
+        let companies = [];
+        let ecosystemData = null;
+        let ws = null;
+        let flipChart = null;
+
+        // Helper function to format time ago
+        function getTimeAgo(date) {
+            const seconds = Math.floor((new Date() - date) / 1000);
+            
+            if (seconds < 60) return 'just now';
+            if (seconds < 3600) return Math.floor(seconds / 60) + 'm ago';
+            if (seconds < 86400) return Math.floor(seconds / 3600) + 'h ago';
+            return Math.floor(seconds / 86400) + 'd ago';
+        }
+
+        // Helper function to format numbers
+        function formatNumber(num) {
+            if (num >= 1e9) return (num / 1e9).toFixed(2) + 'B';
+            if (num >= 1e6) return (num / 1e6).toFixed(2) + 'M';
+            if (num >= 1e3) return (num / 1e3).toFixed(2) + 'K';
+            return num.toLocaleString();
+        }
+
+        // Load ecosystem overview
+        async function loadEcosystemOverview() {
+            try {
+                const response = await fetch('/api/ecosystem/overview');
+                const data = await response.json();
+                
+                // Update stats
+                document.getElementById('totalCompanies').textContent = data.totalCompanies || '0';
+                document.getElementById('totalTransactions').textContent = formatNumber(data.totalTransactions || 0);
+                document.getElementById('dailyVolume').textContent = data.dailyVolume || '0 REACT';
+                document.getElementById('avgGasUsed').textContent = data.avgGasUsed || '0 REACT';
+                
+                ecosystemData = data;
+            } catch (error) {
+                console.error('Error loading ecosystem overview:', error);
             }
-        ];
-
-        // Generate links between companies
-        const links = [
-            { source: 'reactive', target: 'qstn', value: 4 },
-            { source: 'reactive', target: 'world-of-rogues', value: 3 }
-        ];
-        
-        // Add placeholder nodes for future growth (visual only)
-        const placeholderNodes = [
-            { id: 'future1', name: '?', type: 'placeholder', x: 150, y: 150 },
-            { id: 'future2', name: '?', type: 'placeholder', x: 750, y: 450 },
-            { id: 'future3', name: '?', type: 'placeholder', x: 450, y: 100 }
-        ];
-
-        // Initialize D3 Force Simulation
-        const width = window.innerWidth - 380; // Subtract sidebar width
-        const height = window.innerHeight - 72; // Subtract nav height
-
-        const svg = d3.select('#network-graph')
-            .attr('width', width)
-            .attr('height', height);
-
-        // Create gradient definitions
-        const defs = svg.append('defs');
-
-        // Add gradients for nodes
-        const networkGradient = defs.append('radialGradient')
-            .attr('id', 'network-gradient');
-        networkGradient.append('stop')
-            .attr('offset', '0%')
-            .attr('stop-color', '#FF6B6B');
-        networkGradient.append('stop')
-            .attr('offset', '100%')
-            .attr('stop-color', '#FF3838');
-
-        const platformGradient = defs.append('linearGradient')
-            .attr('id', 'platform-gradient');
-        platformGradient.append('stop')
-            .attr('offset', '0%')
-            .attr('stop-color', '#667eea');
-        platformGradient.append('stop')
-            .attr('offset', '100%')
-            .attr('stop-color', '#764ba2');
-
-        const gamingGradient = defs.append('linearGradient')
-            .attr('id', 'gaming-gradient');
-        gamingGradient.append('stop')
-            .attr('offset', '0%')
-            .attr('stop-color', '#51CF66');
-        gamingGradient.append('stop')
-            .attr('offset', '100%')
-            .attr('stop-color', '#21C55F');
-
-        // Add glow filter
-        const filter = defs.append('filter')
-            .attr('id', 'glow');
-        filter.append('feGaussianBlur')
-            .attr('stdDeviation', '3')
-            .attr('result', 'coloredBlur');
-        const feMerge = filter.append('feMerge');
-        feMerge.append('feMergeNode')
-            .attr('in', 'coloredBlur');
-        feMerge.append('feMergeNode')
-            .attr('in', 'SourceGraphic');
-
-        // Create simulation
-        const simulation = d3.forceSimulation(companies)
-            .force('link', d3.forceLink(links)
-                .id(d => d.id)
-                .distance(d => 250))
-            .force('charge', d3.forceManyBody().strength(-400))
-            .force('center', d3.forceCenter(width / 2, height / 2))
-            .force('collision', d3.forceCollide().radius(80));
-
-        // Create link elements
-        const link = svg.append('g')
-            .selectAll('line')
-            .data(links)
-            .enter().append('line')
-            .attr('class', 'link')
-            .attr('stroke', '#4ECDC4')
-            .attr('stroke-width', d => Math.sqrt(d.value))
-            .attr('stroke-opacity', 0.4);
-
-        // Create node group
-        const node = svg.append('g')
-            .selectAll('g')
-            .data(companies)
-            .enter().append('g')
-            .attr('class', 'node')
-            .call(d3.drag()
-                .on('start', dragstarted)
-                .on('drag', dragged)
-                .on('end', dragended));
-
-        // Add placeholder nodes (non-interactive)
-        const placeholders = svg.append('g')
-            .selectAll('g')
-            .data(placeholderNodes)
-            .enter().append('g')
-            .attr('transform', d => `translate(${d.x},${d.y})`);
-
-        placeholders.append('circle')
-            .attr('r', 20)
-            .attr('fill', 'none')
-            .attr('stroke', 'rgba(255, 255, 255, 0.1)')
-            .attr('stroke-width', 2)
-            .attr('stroke-dasharray', '5,5')
-            .style('animation', 'pulse 3s ease-in-out infinite');
-
-        placeholders.append('text')
-            .attr('text-anchor', 'middle')
-            .attr('dy', 5)
-            .text('?')
-            .style('fill', 'rgba(255, 255, 255, 0.2)')
-            .style('font-size', '18px')
-            .style('font-weight', '600');
-
-        // Add circles for nodes
-        node.append('circle')
-            .attr('r', d => d.id === 'reactive' ? 40 : 30)
-            .attr('fill', d => {
-                if (d.id === 'reactive') return 'url(#network-gradient)';
-                if (d.type === 'platform') return 'url(#platform-gradient)';
-                if (d.type === 'gaming') return 'url(#gaming-gradient)';
-                return '#4ECDC4';
-            })
-            .attr('filter', 'url(#glow)')
-            .attr('stroke', '#fff')
-            .attr('stroke-width', 2)
-            .attr('stroke-opacity', 0.3);
-
-        // Add pulsing outer ring for active companies
-        node.append('circle')
-            .attr('r', d => d.id === 'reactive' ? 45 : 35)
-            .attr('fill', 'none')
-            .attr('stroke', d => {
-                if (d.id === 'reactive') return '#FF6B6B';
-                if (d.type === 'platform') return '#667eea';
-                if (d.type === 'gaming') return '#51CF66';
-                return '#4ECDC4';
-            })
-            .attr('stroke-width', 1)
-            .attr('stroke-opacity', 0)
-            .style('animation', 'pulse-ring 3s ease-in-out infinite');
-
-        // Add labels
-        node.append('text')
-            .attr('class', 'node-label')
-            .attr('text-anchor', 'middle')
-            .attr('dy', d => d.id === 'reactive' ? 55 : 40)
-            .text(d => d.name);
-
-        // Add tooltips
-        node.on('mouseover', function(event, d) {
-            const tooltip = document.getElementById('tooltip');
-            tooltip.style.display = 'block';
-            tooltip.style.left = event.pageX + 10 + 'px';
-            tooltip.style.top = event.pageY + 10 + 'px';
-            tooltip.innerHTML = `
-                <strong>${d.name}</strong><br>
-                <span style="color: var(--text-muted); font-size: 10px;">${d.address}</span><br>
-                <div style="margin-top: 8px;">
-                    <div>${d.description}</div>
-                    <div style="margin-top: 8px; color: var(--text-secondary);">
-                        Transactions: ${d.transactions.toLocaleString()}<br>
-                        Volume: ${d.volume}
-                    </div>
-                </div>
-            `;
-        }).on('mouseout', function() {
-            document.getElementById('tooltip').style.display = 'none';
-        });
-
-        // Add particle animation along links
-        function animateParticles() {
-            links.forEach(link => {
-                const particle = svg.append('circle')
-                    .attr('r', 3)
-                    .attr('fill', '#4ECDC4')
-                    .attr('opacity', 0.8);
-
-                const source = companies.find(c => c.id === link.source.id || c.id === link.source);
-                const target = companies.find(c => c.id === link.target.id || c.id === link.target);
-
-                if (source && target) {
-                    particle
-                        .attr('cx', source.x)
-                        .attr('cy', source.y)
-                        .transition()
-                        .duration(2000 + Math.random() * 2000)
-                        .ease(d3.easeLinear)
-                        .attr('cx', target.x)
-                        .attr('cy', target.y)
-                        .on('end', function() {
-                            d3.select(this).remove();
-                        });
-                }
-            });
         }
 
-        // Run particle animation periodically
-        setInterval(animateParticles, 2000);
-
-        // Update positions on tick
-        simulation.on('tick', () => {
-            link
-                .attr('x1', d => d.source.x)
-                .attr('y1', d => d.source.y)
-                .attr('x2', d => d.target.x)
-                .attr('y2', d => d.target.y);
-
-            node.attr('transform', d => `translate(${d.x},${d.y})`);
-        });
-
-        // Drag functions
-        function dragstarted(event, d) {
-            if (!event.active) simulation.alphaTarget(0.3).restart();
-            d.fx = d.x;
-            d.fy = d.y;
+        // Load companies list
+        async function loadCompanies() {
+            try {
+                const response = await fetch('/api/ecosystem/companies');
+                companies = await response.json();
+                
+                // Update sidebar
+                populateSidebar(companies);
+                
+                // Initialize network graph
+                initializeNetworkGraph(companies);
+                
+            } catch (error) {
+                console.error('Error loading companies:', error);
+                document.getElementById('companyList').innerHTML = 
+                    '<div style="text-align: center; color: var(--text-muted); padding: 20px;">Failed to load companies</div>';
+            }
         }
 
-        function dragged(event, d) {
-            d.fx = event.x;
-            d.fy = event.y;
-        }
-
-        function dragended(event, d) {
-            if (!event.active) simulation.alphaTarget(0);
-            d.fx = null;
-            d.fy = null;
-        }
-
-        // Populate sidebar
-        function populateSidebar() {
+        // Populate sidebar with companies
+        function populateSidebar(companies) {
             const companyList = document.getElementById('companyList');
             
-            companies.filter(c => c.id !== 'reactive').forEach(company => {
-                const item = document.createElement('div');
-                item.className = 'company-item';
-                item.innerHTML = `
-                    <div class="company-header">
-                        <div class="company-name">${company.name}</div>
-                        <div class="company-status">
-                            <div class="status-dot"></div>
-                            Active
+            if (companies.length === 0) {
+                companyList.innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 20px;">No companies found</div>';
+                return;
+            }
+            
+            companyList.innerHTML = companies
+                .filter(c => c.id !== 'reactive') // Filter out Reactive Network itself
+                .map(company => {
+                    const metrics = company.metrics || {};
+                    return `
+                        <div class="company-item" data-company="${company.id}" onclick="selectCompany('${company.id}')">
+                            <div class="company-header">
+                                <div class="company-name">${company.name}</div>
+                                <div class="company-status">
+                                    <div class="status-dot"></div>
+                                    ${company.status === 'active' ? 'Active' : 'Inactive'}
+                                </div>
+                            </div>
+                            <div class="company-address">${company.address.substring(0, 10)}...${company.address.substring(38)}</div>
+                            <div class="company-metrics">
+                                <div class="metric">
+                                    <div class="metric-value company-transactions">${formatNumber(metrics.transactions || 0)}</div>
+                                    <div class="metric-label">Transactions</div>
+                                </div>
+                                <div class="metric">
+                                    <div class="metric-value company-volume">${metrics.volume || '0 REACT'}</div>
+                                    <div class="metric-label">Volume</div>
+                                </div>
+                            </div>
                         </div>
-                    </div>
-                    <div class="company-address">${company.address.substring(0, 10)}...${company.address.substring(38)}</div>
-                    <div class="company-metrics">
-                        <div class="metric">
-                            <div class="metric-value">${company.transactions.toLocaleString()}</div>
-                            <div class="metric-label">Transactions</div>
+                    `;
+                }).join('');
+        }
+
+        // Select and highlight a company
+        async function selectCompany(companyId) {
+            // Update active state in sidebar
+            document.querySelectorAll('.company-item').forEach(el => el.classList.remove('active'));
+            const selectedItem = document.querySelector(`[data-company="${companyId}"]`);
+            if (selectedItem) {
+                selectedItem.classList.add('active');
+            }
+            
+            // Highlight in graph
+            d3.selectAll('.node circle')
+                .attr('stroke-width', d => d.id === companyId ? 4 : 2)
+                .attr('stroke', d => d.id === companyId ? '#4ECDC4' : '#fff');
+            
+            // Load detailed company data
+            try {
+                const response = await fetch(`/api/ecosystem/company/${companyId}`);
+                const data = await response.json();
+                
+                // Update tooltip or show details
+                console.log('Company details:', data);
+                
+            } catch (error) {
+                console.error('Error loading company details:', error);
+            }
+        }
+
+        // Load and display activity feed
+        async function loadActivityFeed() {
+            try {
+                const response = await fetch('/api/ecosystem/activity?limit=10');
+                const activities = await response.json();
+                
+                if (activities.length === 0) {
+                    document.getElementById('activityFeed').innerHTML = 
+                        '<div style="text-align: center; padding: 20px; color: rgba(255,255,255,0.4);">No recent activity</div>';
+                    return;
+                }
+                
+                const activityHTML = activities.map(activity => {
+                    const time = new Date(activity.timestamp * 1000);
+                    const timeAgo = getTimeAgo(time);
+                    
+                    let icon = '📊';
+                    let bgColor = 'rgba(78, 205, 196, 0.05)';
+                    
+                    if (activity.activity_type === 'incoming') {
+                        icon = '📥';
+                        bgColor = 'rgba(81, 207, 102, 0.05)';
+                    } else if (activity.activity_type === 'outgoing') {
+                        icon = '📤';
+                        bgColor = 'rgba(255, 107, 107, 0.05)';
+                    }
+                    
+                    return `
+                        <div class="activity-item" style="background: ${bgColor};">
+                            <div style="display: flex; align-items: center; justify-content: space-between;">
+                                <div style="display: flex; align-items: center; gap: 12px;">
+                                    <span style="font-size: 18px;">${icon}</span>
+                                    <div>
+                                        <div style="font-weight: 600; font-size: 13px;">${activity.company_name || 'Unknown'}</div>
+                                        <div style="font-size: 11px; color: rgba(255,255,255,0.5);">
+                                            ${activity.activity_type} • ${activity.amount || '0'} REACT
+                                        </div>
+                                    </div>
+                                </div>
+                                <div style="text-align: right;">
+                                    <div style="font-size: 10px; color: rgba(255,255,255,0.4);">${timeAgo}</div>
+                                    <a href="https://reactscan.net/tx/${activity.tx_hash}" target="_blank" 
+                                       style="font-size: 10px; color: #4ECDC4; text-decoration: none;">
+                                        View →
+                                    </a>
+                                </div>
+                            </div>
                         </div>
-                        <div class="metric">
-                            <div class="metric-value">${company.volume}</div>
-                            <div class="metric-label">Volume</div>
+                    `;
+                }).join('');
+                
+                document.getElementById('activityFeed').innerHTML = activityHTML;
+                
+            } catch (error) {
+                console.error('Error loading activity feed:', error);
+                document.getElementById('activityFeed').innerHTML = 
+                    '<div style="text-align: center; padding: 20px; color: rgba(255,255,255,0.4);">Failed to load activity</div>';
+            }
+        }
+
+        // Initialize D3 network graph
+        function initializeNetworkGraph(companiesData) {
+            const width = window.innerWidth - 380; // Subtract sidebar width
+            const height = window.innerHeight - 72; // Subtract nav height
+
+            const svg = d3.select('#network-graph')
+                .attr('width', width)
+                .attr('height', height);
+
+            // Clear existing content
+            svg.selectAll("*").remove();
+
+            // Create gradient definitions
+            const defs = svg.append('defs');
+
+            // Add gradients for nodes
+            const networkGradient = defs.append('radialGradient')
+                .attr('id', 'network-gradient');
+            networkGradient.append('stop')
+                .attr('offset', '0%')
+                .attr('stop-color', '#FF6B6B');
+            networkGradient.append('stop')
+                .attr('offset', '100%')
+                .attr('stop-color', '#FF3838');
+
+            const platformGradient = defs.append('linearGradient')
+                .attr('id', 'platform-gradient');
+            platformGradient.append('stop')
+                .attr('offset', '0%')
+                .attr('stop-color', '#667eea');
+            platformGradient.append('stop')
+                .attr('offset', '100%')
+                .attr('stop-color', '#764ba2');
+
+            const gamingGradient = defs.append('linearGradient')
+                .attr('id', 'gaming-gradient');
+            gamingGradient.append('stop')
+                .attr('offset', '0%')
+                .attr('stop-color', '#51CF66');
+            gamingGradient.append('stop')
+                .attr('offset', '100%')
+                .attr('stop-color', '#21C55F');
+
+            // Add glow filter
+            const filter = defs.append('filter')
+                .attr('id', 'glow');
+            filter.append('feGaussianBlur')
+                .attr('stdDeviation', '3')
+                .attr('result', 'coloredBlur');
+            const feMerge = filter.append('feMerge');
+            feMerge.append('feMergeNode')
+                .attr('in', 'coloredBlur');
+            feMerge.append('feMergeNode')
+                .attr('in', 'SourceGraphic');
+
+            // Prepare nodes data
+            const nodes = companiesData.map(company => ({
+                id: company.id,
+                name: company.name,
+                type: company.type,
+                address: company.address,
+                description: company.description,
+                transactions: company.metrics?.transactions || 0,
+                volume: company.metrics?.volume || '0 REACT'
+            }));
+
+            // Generate links based on actual relationships if available
+            const links = [];
+            // For now, connect everything to Reactive Network
+            const reactiveNode = nodes.find(n => n.id === 'reactive');
+            if (reactiveNode) {
+                nodes.forEach(node => {
+                    if (node.id !== 'reactive') {
+                        links.push({
+                            source: 'reactive',
+                            target: node.id,
+                            value: Math.max(1, Math.log(node.transactions + 1))
+                        });
+                    }
+                });
+            }
+
+            // Create simulation
+            const simulation = d3.forceSimulation(nodes)
+                .force('link', d3.forceLink(links)
+                    .id(d => d.id)
+                    .distance(d => 200))
+                .force('charge', d3.forceManyBody().strength(-400))
+                .force('center', d3.forceCenter(width / 2, height / 2))
+                .force('collision', d3.forceCollide().radius(60));
+
+            // Create link elements
+            const link = svg.append('g')
+                .selectAll('line')
+                .data(links)
+                .enter().append('line')
+                .attr('class', 'link')
+                .attr('stroke', '#4ECDC4')
+                .attr('stroke-width', d => Math.sqrt(d.value))
+                .attr('stroke-opacity', 0.4);
+
+            // Create node group
+            const node = svg.append('g')
+                .selectAll('g')
+                .data(nodes)
+                .enter().append('g')
+                .attr('class', 'node')
+                .call(d3.drag()
+                    .on('start', dragstarted)
+                    .on('drag', dragged)
+                    .on('end', dragended));
+
+            // Add circles for nodes
+            node.append('circle')
+                .attr('r', d => d.id === 'reactive' ? 40 : 30)
+                .attr('fill', d => {
+                    if (d.id === 'reactive') return 'url(#network-gradient)';
+                    if (d.type === 'platform') return 'url(#platform-gradient)';
+                    if (d.type === 'gaming') return 'url(#gaming-gradient)';
+                    return '#4ECDC4';
+                })
+                .attr('filter', 'url(#glow)')
+                .attr('stroke', '#fff')
+                .attr('stroke-width', 2)
+                .attr('stroke-opacity', 0.3);
+
+            // Add labels
+            node.append('text')
+                .attr('class', 'node-label')
+                .attr('text-anchor', 'middle')
+                .attr('dy', d => d.id === 'reactive' ? 55 : 45)
+                .text(d => d.name);
+
+            // Add tooltips
+            node.on('mouseover', function(event, d) {
+                const tooltip = document.getElementById('tooltip');
+                tooltip.style.display = 'block';
+                tooltip.style.left = event.pageX + 10 + 'px';
+                tooltip.style.top = event.pageY + 10 + 'px';
+                tooltip.innerHTML = `
+                    <strong>${d.name}</strong><br>
+                    <span style="color: var(--text-muted); font-size: 10px;">${d.address}</span><br>
+                    <div style="margin-top: 8px;">
+                        <div>${d.description}</div>
+                        <div style="margin-top: 8px; color: var(--text-secondary);">
+                            Transactions: ${formatNumber(d.transactions)}<br>
+                            Volume: ${d.volume}
                         </div>
                     </div>
                 `;
-                
-                item.addEventListener('click', () => {
-                    // Highlight node in graph
-                    node.selectAll('circle')
-                        .attr('stroke-width', d => d.id === company.id ? 4 : 2)
-                        .attr('stroke', d => d.id === company.id ? '#4ECDC4' : '#fff');
-                    
-                    // Mark item as active
-                    document.querySelectorAll('.company-item').forEach(el => el.classList.remove('active'));
-                    item.classList.add('active');
-                });
-                
-                companyList.appendChild(item);
+            }).on('mouseout', function() {
+                document.getElementById('tooltip').style.display = 'none';
             });
+
+            // Update positions on tick
+            simulation.on('tick', () => {
+                link
+                    .attr('x1', d => d.source.x)
+                    .attr('y1', d => d.source.y)
+                    .attr('x2', d => d.target.x)
+                    .attr('y2', d => d.target.y);
+
+                node.attr('transform', d => `translate(${d.x},${d.y})`);
+            });
+
+            // Drag functions
+            function dragstarted(event, d) {
+                if (!event.active) simulation.alphaTarget(0.3).restart();
+                d.fx = d.x;
+                d.fy = d.y;
+            }
+
+            function dragged(event, d) {
+                d.fx = event.x;
+                d.fy = event.y;
+            }
+
+            function dragended(event, d) {
+                if (!event.active) simulation.alphaTarget(0);
+                d.fx = null;
+                d.fy = null;
+            }
         }
 
-        // Simulate live activity
-        function addActivity() {
-            const activities = [
-                'QSTN deployed new survey contract',
-                'World of Rogues processed game transaction',
-                'QSTN rewards distributed',
-                'World of Rogues: New player joined',
-                'QSTN quest completed',
-                'World of Rogues: Battle resolved on-chain',
-                'New contract interaction detected',
-                'Cross-chain message received',
-                'Gas optimization executed'
-            ];
+        // Connect to WebSocket for real-time updates
+        function connectWebSocket() {
+            const wsUrl = window.location.origin.replace('http', 'ws');
+            ws = new WebSocket(wsUrl);
+            
+            ws.onopen = () => {
+                console.log('WebSocket connected');
+            };
+            
+            ws.onmessage = (event) => {
+                try {
+                    const message = JSON.parse(event.data);
+                    
+                    if (message.type === 'ecosystem_activity') {
+                        console.log('New ecosystem activity:', message.data);
+                        
+                        // Refresh activity feed
+                        loadActivityFeed();
+                        
+                        // Update company metrics if it's for a known company
+                        if (message.data.companyId) {
+                            updateCompanyMetrics(message.data.companyId);
+                        }
+                        
+                        // Optionally show a notification
+                        showActivityNotification(message.data);
+                    }
+                } catch (error) {
+                    console.error('Error processing WebSocket message:', error);
+                }
+            };
+            
+            ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+            };
+            
+            ws.onclose = () => {
+                console.log('WebSocket disconnected, reconnecting in 5s...');
+                setTimeout(connectWebSocket, 5000);
+            };
         }
 
-        // Initialize
-        populateSidebar();
-        setInterval(addActivity, 5000);
-        addActivity(); // Add first activity
+        // Update specific company metrics
+        async function updateCompanyMetrics(companyId) {
+            try {
+                const response = await fetch(`/api/ecosystem/company/${companyId}`);
+                const data = await response.json();
+                
+                // Update the company item in the sidebar
+                const companyElement = document.querySelector(`[data-company="${companyId}"]`);
+                if (companyElement && data.metrics) {
+                    const txElement = companyElement.querySelector('.company-transactions');
+                    if (txElement) {
+                        txElement.textContent = formatNumber(data.metrics.transactions);
+                    }
+                    
+                    const volumeElement = companyElement.querySelector('.company-volume');
+                    if (volumeElement) {
+                        volumeElement.textContent = data.metrics.volume;
+                    }
+                }
+            } catch (error) {
+                console.error(`Error updating metrics for ${companyId}:`, error);
+            }
+        }
+
+        // Show activity notification (optional)
+        function showActivityNotification(activity) {
+            // You could add a toast notification here
+            console.log(`New activity: ${activity.companyName} - ${activity.activityType}`);
+        }
 
         // Handle window resize
         window.addEventListener('resize', () => {
             const newWidth = window.innerWidth - 380;
             const newHeight = window.innerHeight - 72;
             
-            svg.attr('width', newWidth).attr('height', newHeight);
-            simulation.force('center', d3.forceCenter(newWidth / 2, newHeight / 2));
-            simulation.alpha(0.3).restart();
+            d3.select('#network-graph')
+                .attr('width', newWidth)
+                .attr('height', newHeight);
+            
+            // Reinitialize graph with new dimensions
+            if (companies.length > 0) {
+                initializeNetworkGraph(companies);
+            }
+        });
+
+        // Initialize everything when page loads
+        window.addEventListener('load', async () => {
+            // Load initial data
+            await loadEcosystemOverview();
+            await loadCompanies();
+            await loadActivityFeed();
+            
+            // Connect WebSocket for real-time updates
+            connectWebSocket();
+            
+            // Refresh data periodically
+            setInterval(loadEcosystemOverview, 60000); // Every minute
+            setInterval(loadActivityFeed, 30000); // Every 30 seconds
+            
+            // Refresh company metrics every 2 minutes
+            setInterval(async () => {
+                for (const company of companies) {
+                    if (company.id !== 'reactive') {
+                        await updateCompanyMetrics(company.id);
+                    }
+                }
+            }, 120000);
         });
     </script>
 </body>
