@@ -1,4 +1,4 @@
-// server.js - Production Backend for REACT Burn Tracker with Holder Analytics
+// server.js - Production Backend for REACT Burn Tracker with Holder Analytics and CoinGecko Price API
 const express = require('express');
 const cors = require('cors');
 const { Web3 } = require('web3');
@@ -95,21 +95,96 @@ const KNOWN_ADDRESSES = {
   // Add more known addresses as discovered
 };
 
-// Price fetching (you'll need to implement based on your price source)
-let currentPrice = 0.0234; // Default price
+// Price tracking variables
+let currentPrice = 0;
+let priceData = {
+  price: 0,
+  marketCap: 0,
+  priceChange24h: 0,
+  circulatingSupply: 0,
+  totalSupply: 0,
+  rank: 0,
+  lastUpdated: null
+};
+
+// CoinGecko API integration
 async function updateTokenPrice() {
   try {
-    // TODO: Implement actual price fetching from DEX or price oracle
-    // For now, using a placeholder
-    // const price = await fetchPriceFromDEX();
-    // currentPrice = price;
+    console.log('Fetching REACT price from CoinGecko...');
+    
+    // Fetch price data from CoinGecko
+    const priceResponse = await fetch(
+      'https://api.coingecko.com/api/v3/simple/price?ids=reactive-network&vs_currencies=usd&include_market_cap=true&include_24hr_change=true'
+    );
+    
+    if (!priceResponse.ok) {
+      throw new Error(`CoinGecko API error: ${priceResponse.status}`);
+    }
+    
+    const priceJson = await priceResponse.json();
+    
+    if (priceJson['reactive-network']) {
+      priceData.price = priceJson['reactive-network'].usd || 0;
+      priceData.marketCap = priceJson['reactive-network'].usd_market_cap || 0;
+      priceData.priceChange24h = priceJson['reactive-network'].usd_24h_change || 0;
+      currentPrice = priceData.price;
+      
+      console.log(`REACT price updated: $${currentPrice} (${priceData.priceChange24h >= 0 ? '+' : ''}${priceData.priceChange24h.toFixed(2)}%)`);
+    }
+    
+    // Fetch detailed coin info for more data (optional, can be disabled if rate limited)
+    try {
+      const detailsResponse = await fetch(
+        'https://api.coingecko.com/api/v3/coins/reactive-network?localization=false&tickers=false&market_data=true&community_data=false&developer_data=false'
+      );
+      
+      if (detailsResponse.ok) {
+        const detailsJson = await detailsResponse.json();
+        
+        if (detailsJson.market_data) {
+          priceData.rank = detailsJson.market_cap_rank || 0;
+          priceData.circulatingSupply = detailsJson.market_data.circulating_supply || 0;
+          priceData.totalSupply = detailsJson.market_data.total_supply || priceData.circulatingSupply;
+        }
+      }
+    } catch (detailError) {
+      // Non-critical error, just log it
+      console.log('Could not fetch detailed coin info:', detailError.message);
+    }
+    
+    priceData.lastUpdated = new Date().toISOString();
+    
+    // Store price in database for historical tracking (optional)
+    db.run(
+      'INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)',
+      ['current_react_price', JSON.stringify(priceData)],
+      (err) => {
+        if (err) console.error('Error storing price data:', err);
+      }
+    );
+    
   } catch (error) {
-    console.error('Error updating price:', error);
+    console.error('Error updating REACT price:', error.message);
+    
+    // Try to load last known price from database as fallback
+    db.get('SELECT value FROM metadata WHERE key = ?', ['current_react_price'], (err, row) => {
+      if (!err && row) {
+        try {
+          const savedData = JSON.parse(row.value);
+          priceData = savedData;
+          currentPrice = savedData.price;
+          console.log('Using last known price from database: $' + currentPrice);
+        } catch (parseError) {
+          console.error('Error parsing saved price data:', parseError);
+        }
+      }
+    });
   }
 }
 
-// Update price every 5 minutes
-setInterval(updateTokenPrice, 5 * 60 * 1000);
+// Update price on startup and every 60 seconds (be mindful of rate limits)
+updateTokenPrice();
+setInterval(updateTokenPrice, 60 * 1000); // Every minute
 
 // Create HTTP server
 const server = require('http').createServer(app);
@@ -120,6 +195,12 @@ const wss = new WebSocket.Server({ server });
 // WebSocket connection handling
 wss.on('connection', (ws) => {
   console.log('New WebSocket client connected');
+  
+  // Send current price data to new client
+  ws.send(JSON.stringify({
+    type: 'price_update',
+    data: priceData
+  }));
   
   ws.on('close', () => {
     console.log('WebSocket client disconnected');
@@ -132,6 +213,14 @@ function broadcast(data) {
     if (client.readyState === WebSocket.OPEN) {
       client.send(JSON.stringify(data));
     }
+  });
+}
+
+// Broadcast price updates to all clients
+function broadcastPriceUpdate() {
+  broadcast({
+    type: 'price_update',
+    data: priceData
   });
 }
 
@@ -480,7 +569,7 @@ async function processRegularTransaction(tx, block) {
         console.log(`Standard fee tx ${tx.hash}: to=${tx.to}, from=${tx.from}, type=${transactionType}, info=${txInfo}`);
       }
       
-      // Store in database with additional info
+      // Store in database with additional info - use currentPrice for USD value
       db.run(
         `INSERT OR IGNORE INTO burns (tx_hash, block_number, amount, from_address, timestamp, usd_value, burn_type, gas_used) 
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -628,7 +717,7 @@ async function pollBlocks() {
                 `SELECT COUNT(*) as count, SUM(CAST(amount AS REAL)) as total FROM burns`,
                 (err, row) => {
                   if (!err && row) {
-                    // Broadcast update to clients
+                    // Broadcast update to clients including price data
                     broadcast({
                       type: 'block_processed',
                       data: {
@@ -636,7 +725,9 @@ async function pollBlocks() {
                         transactionCount: block.transactions.length,
                         burnedInBlock: totalBurnedInBlock,
                         totalBurned: row.total || 0,
-                        totalTransactions: row.count || 0
+                        totalTransactions: row.count || 0,
+                        currentPrice: currentPrice,
+                        priceData: priceData
                       }
                     });
                   }
@@ -715,6 +806,8 @@ async function processHistoricalBatch(startBlock, endBlock) {
                       burnType = 'gas_fee_contract';
                     }
                     
+                    // For historical data, we don't have the price at that time
+                    // So we use 0 for USD value (could be enhanced with historical price data)
                     burns.push({
                       tx_hash: tx.hash,
                       block_number: Number(block.number),
@@ -932,6 +1025,14 @@ app.get('/api/deployment-info', (req, res) => {
   });
 });
 
+// Get current price info
+app.get('/api/price', (req, res) => {
+  res.json({
+    price: currentPrice,
+    ...priceData
+  });
+});
+
 // Get total burns with breakdown by type and unique addresses
 app.get('/api/stats/total', (req, res) => {
   db.all(
@@ -950,7 +1051,6 @@ app.get('/api/stats/total', (req, res) => {
         `SELECT 
           COUNT(*) as total_transactions,
           SUM(CAST(amount AS REAL)) as total_burned,
-          SUM(usd_value) as total_usd_value,
           COUNT(DISTINCT from_address) as unique_addresses
          FROM burns`,
         (err, totals) => {
@@ -958,12 +1058,16 @@ app.get('/api/stats/total', (req, res) => {
             return res.status(500).json({ error: err.message });
           }
           
+          // Calculate total USD value using current price
+          const totalUsdValue = (totals.total_burned || 0) * currentPrice;
+          
           res.json({
             totalTransactions: totals.total_transactions || 0,
             totalBurned: totals.total_burned || 0,
-            totalUsdValue: totals.total_usd_value || 0,
+            totalUsdValue: totalUsdValue,
             uniqueAddresses: totals.unique_addresses || 0,
             currentPrice: currentPrice,
+            priceData: priceData,
             breakdown: typeBreakdown || []
           });
         }
@@ -991,7 +1095,8 @@ app.get('/api/stats/24h', (req, res) => {
       res.json({
         transactions24h: row.transactions_24h || 0,
         burned24h: row.burned_24h || 0,
-        uniqueAddresses24h: row.unique_addresses_24h || 0
+        uniqueAddresses24h: row.unique_addresses_24h || 0,
+        usdValue24h: (row.burned_24h || 0) * currentPrice
       });
     }
   );
@@ -1011,7 +1116,8 @@ app.get('/api/stats/burn-rate', (req, res) => {
         return res.status(500).json({ error: err.message });
       }
       res.json({
-        burnRate: row.hourly_burn || 0
+        burnRate: row.hourly_burn || 0,
+        burnRateUsd: (row.hourly_burn || 0) * currentPrice
       });
     }
   );
@@ -2043,7 +2149,11 @@ app.get('/api/health', (req, res) => {
   res.json({ 
     status: 'ok', 
     timestamp: new Date().toISOString(),
-    websocket: wss.clients.size + ' clients connected'
+    websocket: wss.clients.size + ' clients connected',
+    price: {
+      current: currentPrice,
+      lastUpdated: priceData.lastUpdated
+    }
   });
 });
 
@@ -2071,7 +2181,6 @@ server.listen(PORT, () => {
     initializeHolderTracker();
     
     pollBlocks();
-    updateTokenPrice();
   });
 });
 
