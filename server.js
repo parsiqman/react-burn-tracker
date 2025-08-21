@@ -1,4 +1,4 @@
-// server.js - Production Backend for REACT Burn Tracker with Holder Analytics and CoinGecko Price API
+// server.js - Production Backend for REACT Burn Tracker with Holder Analytics, Ecosystem Tracking, and CoinGecko Price API
 const express = require('express');
 const cors = require('cors');
 const { Web3 } = require('web3');
@@ -84,6 +84,61 @@ const CALLBACK_PROXIES = {
 
 // Create a reverse lookup for quick checking
 const ALL_CALLBACK_PROXIES = new Set(Object.values(CALLBACK_PROXIES).map(addr => addr.toLowerCase()));
+
+// Ecosystem Companies Registry - REAL ADDRESSES FROM YOUR ecosystem.html
+const ECOSYSTEM_COMPANIES = {
+  'reactive': {
+    id: 'reactive',
+    name: 'Reactive Network',
+    type: 'core',
+    address: '0x0000000000000000000000000000000000fffFfF',
+    description: 'Core Network Protocol',
+    category: 'infrastructure',
+    status: 'active',
+    addedAt: new Date('2024-01-01').toISOString()
+  },
+  'qstn': {
+    id: 'qstn', 
+    name: 'QSTN',
+    type: 'platform',
+    address: '0x05f5e6b7972275535a5A99A85b7e85821E752CF1',
+    description: 'Web3 Survey & Quest Platform',
+    category: 'platform',
+    status: 'active',
+    addedAt: new Date('2024-11-01').toISOString()
+  },
+  'world-of-rogues': {
+    id: 'world-of-rogues',
+    name: 'World of Rogues',
+    type: 'gaming',
+    address: '0xC5Bd3532198e2D561f817c22524D1F6f10415bc2',
+    description: 'On-chain Gaming Platform',
+    category: 'gaming',
+    status: 'active',
+    addedAt: new Date('2024-11-15').toISOString()
+  }
+  // Add new companies here as they integrate with Reactive Network
+};
+
+// Track ecosystem metrics in memory (will be persisted to DB)
+let ecosystemMetrics = {
+  totalTransactions: 0,
+  totalVolume: 0,
+  dailyVolume: 0,
+  avgGasUsed: 0,
+  lastUpdated: null,
+  companyMetrics: {}
+};
+
+// Initialize company metrics
+Object.keys(ECOSYSTEM_COMPANIES).forEach(companyId => {
+  ecosystemMetrics.companyMetrics[companyId] = {
+    transactions: 0,
+    volume: '0',
+    gasUsed: 0,
+    lastActivity: null
+  };
+});
 
 // Known addresses database for labeling
 const KNOWN_ADDRESSES = {
@@ -224,7 +279,7 @@ function broadcastPriceUpdate() {
   });
 }
 
-// Initialize tables with proper callbacks - UPDATED WITH HOLDER TABLES
+// Initialize tables with proper callbacks - UPDATED WITH HOLDER TABLES AND ECOSYSTEM TABLES
 function initializeDatabase(callback) {
   db.serialize(() => {
     // Create burns table - now with burn_type field
@@ -306,13 +361,52 @@ function initializeDatabase(callback) {
       )
     `);
 
+    // Create ecosystem_activity table
+    db.run(`
+      CREATE TABLE IF NOT EXISTS ecosystem_activity (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        company_id TEXT NOT NULL,
+        address TEXT NOT NULL,
+        tx_hash TEXT NOT NULL,
+        block_number INTEGER NOT NULL,
+        amount TEXT,
+        gas_used INTEGER,
+        activity_type TEXT,
+        from_address TEXT,
+        to_address TEXT,
+        timestamp INTEGER NOT NULL,
+        metadata TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Create ecosystem_metrics table
+    db.run(`
+      CREATE TABLE IF NOT EXISTS ecosystem_metrics (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        company_id TEXT NOT NULL,
+        date DATE NOT NULL,
+        transaction_count INTEGER DEFAULT 0,
+        volume REAL DEFAULT 0,
+        unique_users INTEGER DEFAULT 0,
+        gas_used INTEGER DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(company_id, date)
+      )
+    `);
+
     // Create indexes for holder tables
     db.run('CREATE INDEX IF NOT EXISTS idx_balance_numeric ON holders(balance_numeric DESC)');
     db.run('CREATE INDEX IF NOT EXISTS idx_tx_count ON holders(tx_count DESC)');
     db.run('CREATE INDEX IF NOT EXISTS idx_last_updated ON holders(last_updated_timestamp)');
     db.run('CREATE INDEX IF NOT EXISTS idx_is_contract ON holders(is_contract)');
     db.run('CREATE INDEX IF NOT EXISTS idx_history_timestamp ON holder_history(timestamp DESC)');
-    db.run('CREATE INDEX IF NOT EXISTS idx_history_block ON holder_history(block_number DESC)', callback);
+    db.run('CREATE INDEX IF NOT EXISTS idx_history_block ON holder_history(block_number DESC)');
+    
+    // Create indexes for ecosystem tables
+    db.run('CREATE INDEX IF NOT EXISTS idx_ecosystem_company ON ecosystem_activity(company_id)');
+    db.run('CREATE INDEX IF NOT EXISTS idx_ecosystem_address ON ecosystem_activity(address)');
+    db.run('CREATE INDEX IF NOT EXISTS idx_ecosystem_timestamp ON ecosystem_activity(timestamp)', callback);
   });
 }
 
@@ -368,6 +462,88 @@ function initializeHolderTracker() {
   }).catch(error => {
     console.error('Error initializing holder tracker:', error);
   });
+}
+
+// Track ecosystem company activity
+async function trackEcosystemActivity(tx, block, receipt) {
+  try {
+    const toAddress = tx.to ? tx.to.toLowerCase() : '';
+    const fromAddress = tx.from ? tx.from.toLowerCase() : '';
+    
+    // Check if this transaction involves any ecosystem company
+    for (const [companyId, company] of Object.entries(ECOSYSTEM_COMPANIES)) {
+      const companyAddress = company.address.toLowerCase();
+      
+      if (toAddress === companyAddress || fromAddress === companyAddress) {
+        // This transaction involves an ecosystem company
+        const gasUsed = receipt ? Number(receipt.gasUsed) : 0;
+        const value = tx.value ? web3.utils.fromWei(tx.value, 'ether') : '0';
+        
+        // Determine activity type
+        let activityType = 'interaction';
+        if (toAddress === companyAddress && fromAddress !== companyAddress) {
+          activityType = 'incoming';
+        } else if (fromAddress === companyAddress && toAddress !== companyAddress) {
+          activityType = 'outgoing';
+        }
+        
+        // Store in database
+        db.run(`
+          INSERT INTO ecosystem_activity 
+          (company_id, address, tx_hash, block_number, amount, gas_used, activity_type, from_address, to_address, timestamp)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [
+          companyId,
+          companyAddress,
+          tx.hash,
+          Number(block.number),
+          value,
+          gasUsed,
+          activityType,
+          fromAddress,
+          toAddress,
+          Number(block.timestamp)
+        ]);
+        
+        // Update daily metrics
+        const date = new Date(Number(block.timestamp) * 1000).toISOString().split('T')[0];
+        db.run(`
+          INSERT INTO ecosystem_metrics (company_id, date, transaction_count, volume, gas_used)
+          VALUES (?, ?, 1, ?, ?)
+          ON CONFLICT(company_id, date) DO UPDATE SET
+            transaction_count = transaction_count + 1,
+            volume = volume + excluded.volume,
+            gas_used = gas_used + excluded.gas_used
+        `, [companyId, date, parseFloat(value), gasUsed]);
+        
+        // Update in-memory metrics
+        ecosystemMetrics.totalTransactions++;
+        ecosystemMetrics.totalVolume += parseFloat(value);
+        ecosystemMetrics.companyMetrics[companyId].transactions++;
+        ecosystemMetrics.companyMetrics[companyId].volume = (parseFloat(ecosystemMetrics.companyMetrics[companyId].volume) + parseFloat(value)).toString();
+        ecosystemMetrics.companyMetrics[companyId].gasUsed += gasUsed;
+        ecosystemMetrics.companyMetrics[companyId].lastActivity = Number(block.timestamp);
+        ecosystemMetrics.lastUpdated = new Date().toISOString();
+        
+        console.log(`Ecosystem activity detected: ${company.name} - ${activityType} - ${tx.hash}`);
+        
+        // Broadcast ecosystem update to WebSocket clients
+        broadcast({
+          type: 'ecosystem_activity',
+          data: {
+            companyId: companyId,
+            companyName: company.name,
+            activityType: activityType,
+            txHash: tx.hash,
+            amount: value,
+            timestamp: Number(block.timestamp)
+          }
+        });
+      }
+    }
+  } catch (error) {
+    console.error('Error tracking ecosystem activity:', error);
+  }
 }
 
 // Track regular transaction gas fees
@@ -691,8 +867,12 @@ async function pollBlocks() {
               
               // Process regular transactions for gas fees
               for (const tx of block.transactions) {
+                const receipt = await web3.eth.getTransactionReceipt(tx.hash);
                 const burned = await processRegularTransaction(tx, block);
                 totalBurnedInBlock += burned;
+                
+                // Track ecosystem activity
+                await trackEcosystemActivity(tx, block, receipt);
                 
                 // Collect active addresses for holder updates
                 if (tx.from) activeAddresses.push(tx.from.toLowerCase());
@@ -778,6 +958,9 @@ async function processHistoricalBatch(startBlock, endBlock) {
             for (const tx of txChunk) {
               try {
                 const receipt = await web3.eth.getTransactionReceipt(tx.hash);
+                
+                // Also track ecosystem activity in historical sync
+                await trackEcosystemActivity(tx, block, receipt);
                 
                 if (receipt && receipt.gasUsed) {
                   const gasUsed = BigInt(receipt.gasUsed);
@@ -1004,6 +1187,61 @@ async function runHistoricalSync() {
   }
 }
 
+// Load ecosystem metrics from database on startup
+async function loadEcosystemMetrics() {
+  try {
+    // Load total metrics for each company
+    for (const [companyId, company] of Object.entries(ECOSYSTEM_COMPANIES)) {
+      const metrics = await new Promise((resolve, reject) => {
+        db.get(`
+          SELECT 
+            COUNT(*) as transaction_count,
+            SUM(CAST(amount AS REAL)) as total_volume,
+            SUM(gas_used) as total_gas,
+            MAX(timestamp) as last_activity
+          FROM ecosystem_activity
+          WHERE company_id = ?
+        `, [companyId], (err, row) => {
+          if (err) reject(err);
+          else resolve(row);
+        });
+      });
+
+      if (metrics) {
+        ecosystemMetrics.companyMetrics[companyId] = {
+          transactions: metrics.transaction_count || 0,
+          volume: (metrics.total_volume || 0).toString(),
+          gasUsed: metrics.total_gas || 0,
+          lastActivity: metrics.last_activity
+        };
+        
+        ecosystemMetrics.totalTransactions += metrics.transaction_count || 0;
+        ecosystemMetrics.totalVolume += metrics.total_volume || 0;
+      }
+    }
+
+    // Load 24h volume
+    const dayAgo = Math.floor(Date.now() / 1000) - (24 * 60 * 60);
+    const dailyVolume = await new Promise((resolve, reject) => {
+      db.get(`
+        SELECT SUM(CAST(amount AS REAL)) as daily_volume
+        FROM ecosystem_activity
+        WHERE timestamp > ?
+      `, [dayAgo], (err, row) => {
+        if (err) reject(err);
+        else resolve(row?.daily_volume || 0);
+      });
+    });
+
+    ecosystemMetrics.dailyVolume = dailyVolume;
+    ecosystemMetrics.lastUpdated = new Date().toISOString();
+
+    console.log('Ecosystem metrics loaded:', ecosystemMetrics);
+  } catch (error) {
+    console.error('Error loading ecosystem metrics:', error);
+  }
+}
+
 // API Endpoints
 
 // Get deployment info
@@ -1204,6 +1442,191 @@ app.get('/api/stats/burn-types', (req, res) => {
       res.json(rows);
     }
   );
+});
+
+// === ECOSYSTEM API ENDPOINTS ===
+
+// Get ecosystem overview
+app.get('/api/ecosystem/overview', async (req, res) => {
+  try {
+    // Refresh metrics from database
+    await loadEcosystemMetrics();
+    
+    // Calculate average gas
+    const avgGas = ecosystemMetrics.totalTransactions > 0 
+      ? (ecosystemMetrics.totalTransactions / ecosystemMetrics.totalTransactions).toFixed(4)
+      : '0.003';
+
+    res.json({
+      totalCompanies: Object.keys(ECOSYSTEM_COMPANIES).length - 1, // Exclude Reactive Network itself
+      totalTransactions: ecosystemMetrics.totalTransactions,
+      totalVolume: ecosystemMetrics.totalVolume.toFixed(2) + ' REACT',
+      dailyVolume: ecosystemMetrics.dailyVolume.toFixed(2) + ' REACT',
+      avgGasUsed: avgGas + ' REACT',
+      lastUpdated: ecosystemMetrics.lastUpdated
+    });
+  } catch (error) {
+    console.error('Error getting ecosystem overview:', error);
+    res.status(500).json({ error: 'Failed to get ecosystem overview' });
+  }
+});
+
+// Get individual company data
+app.get('/api/ecosystem/company/:companyId', async (req, res) => {
+  const { companyId } = req.params;
+  const company = ECOSYSTEM_COMPANIES[companyId];
+  
+  if (!company) {
+    return res.status(404).json({ error: 'Company not found' });
+  }
+
+  try {
+    // Get company metrics
+    const metrics = await new Promise((resolve, reject) => {
+      db.get(`
+        SELECT 
+          COUNT(*) as transaction_count,
+          SUM(CAST(amount AS REAL)) as total_volume,
+          SUM(gas_used) as total_gas,
+          MAX(timestamp) as last_activity,
+          COUNT(DISTINCT CASE WHEN activity_type = 'incoming' THEN from_address END) as unique_users
+        FROM ecosystem_activity
+        WHERE company_id = ?
+      `, [companyId], (err, row) => {
+        if (err) reject(err);
+        else resolve(row);
+      });
+    });
+
+    // Get recent activity
+    const recentActivity = await new Promise((resolve, reject) => {
+      db.all(`
+        SELECT 
+          tx_hash,
+          block_number,
+          amount,
+          activity_type,
+          from_address,
+          to_address,
+          timestamp
+        FROM ecosystem_activity
+        WHERE company_id = ?
+        ORDER BY timestamp DESC
+        LIMIT 10
+      `, [companyId], (err, rows) => {
+        if (err) reject(err);
+        else resolve(rows);
+      });
+    });
+
+    res.json({
+      company: company,
+      metrics: {
+        transactions: metrics.transaction_count || 0,
+        volume: (metrics.total_volume || 0).toFixed(2) + ' REACT',
+        gasUsed: metrics.total_gas || 0,
+        uniqueUsers: metrics.unique_users || 0,
+        lastActivity: metrics.last_activity,
+        avgGasPerTx: metrics.transaction_count > 0 
+          ? (metrics.total_gas / metrics.transaction_count).toFixed(0)
+          : 0
+      },
+      recentActivity: recentActivity
+    });
+  } catch (error) {
+    console.error('Error getting company data:', error);
+    res.status(500).json({ error: 'Failed to get company data' });
+  }
+});
+
+// Get all companies list
+app.get('/api/ecosystem/companies', (req, res) => {
+  const companies = Object.values(ECOSYSTEM_COMPANIES).map(company => ({
+    ...company,
+    metrics: ecosystemMetrics.companyMetrics[company.id] || {
+      transactions: 0,
+      volume: '0',
+      gasUsed: 0,
+      lastActivity: null
+    }
+  }));
+
+  res.json(companies);
+});
+
+// Get ecosystem activity feed
+app.get('/api/ecosystem/activity', async (req, res) => {
+  const limit = parseInt(req.query.limit) || 50;
+  
+  try {
+    const activities = await new Promise((resolve, reject) => {
+      db.all(`
+        SELECT 
+          ea.*,
+          ec.name as company_name,
+          ec.type as company_type
+        FROM ecosystem_activity ea
+        JOIN (
+          SELECT 'reactive' as id, 'Reactive Network' as name, 'core' as type
+          UNION SELECT 'qstn', 'QSTN', 'platform'
+          UNION SELECT 'world-of-rogues', 'World of Rogues', 'gaming'
+        ) ec ON ea.company_id = ec.id
+        ORDER BY ea.timestamp DESC
+        LIMIT ?
+      `, [limit], (err, rows) => {
+        if (err) reject(err);
+        else resolve(rows);
+      });
+    });
+
+    res.json(activities);
+  } catch (error) {
+    console.error('Error getting ecosystem activity:', error);
+    res.status(500).json({ error: 'Failed to get ecosystem activity' });
+  }
+});
+
+// Get ecosystem company relationships (for network graph)
+app.get('/api/ecosystem/relationships', async (req, res) => {
+  try {
+    // Find relationships between companies based on transaction patterns
+    const relationships = await new Promise((resolve, reject) => {
+      db.all(`
+        SELECT 
+          a1.company_id as source,
+          a2.company_id as target,
+          COUNT(*) as interaction_count,
+          SUM(CAST(a1.amount AS REAL)) as total_volume
+        FROM ecosystem_activity a1
+        JOIN ecosystem_activity a2 ON a1.tx_hash = a2.tx_hash
+        WHERE a1.company_id != a2.company_id
+        GROUP BY a1.company_id, a2.company_id
+      `, (err, rows) => {
+        if (err) reject(err);
+        else resolve(rows);
+      });
+    });
+
+    // Format as network graph data
+    const nodes = Object.values(ECOSYSTEM_COMPANIES).map(company => ({
+      id: company.id,
+      name: company.name,
+      type: company.type,
+      ...ecosystemMetrics.companyMetrics[company.id]
+    }));
+
+    const links = relationships.map(rel => ({
+      source: rel.source,
+      target: rel.target,
+      value: rel.interaction_count,
+      volume: rel.total_volume
+    }));
+
+    res.json({ nodes, links });
+  } catch (error) {
+    console.error('Error getting ecosystem relationships:', error);
+    res.status(500).json({ error: 'Failed to get ecosystem relationships' });
+  }
 });
 
 // Get address transaction distribution with full analysis
@@ -2176,6 +2599,9 @@ server.listen(PORT, () => {
         }
       });
     });
+    
+    // Load ecosystem metrics on startup
+    loadEcosystemMetrics();
     
     // Initialize holder tracker
     initializeHolderTracker();
