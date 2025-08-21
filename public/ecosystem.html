@@ -194,43 +194,6 @@
             color: var(--text-muted);
         }
 
-        /* Stats Cards */
-        .stats-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 12px;
-            margin-bottom: 24px;
-        }
-
-        .stat-card {
-            background: rgba(255, 255, 255, 0.03);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 16px;
-            transition: all 0.3s ease;
-        }
-
-        .stat-card:hover {
-            background: rgba(255, 255, 255, 0.05);
-            transform: translateY(-2px);
-        }
-
-        .stat-value {
-            font-size: 24px;
-            font-weight: 700;
-            background: var(--gradient-teal);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            margin-bottom: 4px;
-        }
-
-        .stat-label {
-            font-size: 11px;
-            color: var(--text-muted);
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
-
         /* Company List */
         .company-list {
             margin-top: 24px;
@@ -404,62 +367,6 @@
             border-radius: 50%;
         }
 
-        /* Activity Feed */
-        .activity-feed {
-            position: absolute;
-            top: 24px;
-            right: 24px;
-            width: 320px;
-            max-height: 200px;
-            background: rgba(26, 27, 35, 0.9);
-            backdrop-filter: blur(20px);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 16px;
-            overflow-y: auto;
-            z-index: 20;
-        }
-
-        .activity-title {
-            font-size: 12px;
-            font-weight: 600;
-            color: var(--text-secondary);
-            margin-bottom: 12px;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
-
-        .activity-item {
-            font-size: 11px;
-            color: var(--text-muted);
-            margin-bottom: 8px;
-            padding-left: 16px;
-            position: relative;
-            animation: slide-in 0.5s ease;
-        }
-
-        @keyframes slide-in {
-            from {
-                opacity: 0;
-                transform: translateX(20px);
-            }
-            to {
-                opacity: 1;
-                transform: translateX(0);
-            }
-        }
-
-        .activity-item::before {
-            content: '';
-            position: absolute;
-            left: 0;
-            top: 5px;
-            width: 4px;
-            height: 4px;
-            background: var(--secondary);
-            border-radius: 50%;
-        }
-
         /* Tooltip */
         .tooltip {
             position: absolute;
@@ -508,9 +415,6 @@
             .sidebar {
                 width: 320px;
             }
-            .activity-feed {
-                display: none;
-            }
         }
 
         @media (max-width: 768px) {
@@ -550,27 +454,7 @@
         <div class="sidebar">
             <div class="sidebar-header">
                 <div class="sidebar-title">Network Ecosystem</div>
-                <div class="sidebar-subtitle">Real-time company activity on Reactive Network</div>
-            </div>
-
-            <!-- Stats -->
-            <div class="stats-grid">
-                <div class="stat-card">
-                    <div class="stat-value" id="totalCompanies">0</div>
-                    <div class="stat-label">Active Companies</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value" id="totalTransactions">0</div>
-                    <div class="stat-label">Total Transactions</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value" id="dailyVolume">0</div>
-                    <div class="stat-label">24h Volume</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value" id="avgGas">0</div>
-                    <div class="stat-label">Avg Gas Used</div>
-                </div>
+                <div class="sidebar-subtitle">Real-time business activity on Reactive Network</div>
             </div>
 
             <!-- Company List -->
@@ -592,12 +476,6 @@
         <!-- Visualization -->
         <div class="visualization">
             <svg id="network-graph"></svg>
-
-            <!-- Activity Feed -->
-            <div class="activity-feed">
-                <div class="activity-title">Live Activity</div>
-                <div id="activityItems"></div>
-            </div>
 
             <!-- Legend -->
             <div class="legend">
@@ -627,18 +505,6 @@
 
     <script>
         // Company data with contract addresses - REAL COMPANIES ONLY
-        // To add new companies as they're discovered, simply add them here:
-        // {
-        //     id: 'unique-id',
-        //     name: 'Company Name',
-        //     type: 'platform' | 'gaming' | 'defi' | 'infrastructure' | 'other',
-        //     address: '0x...',
-        //     description: 'What they do',
-        //     transactions: 0,
-        //     volume: '0 REACT',
-        //     gasUsed: 0,
-        //     status: 'active'
-        // }
         const companies = [
             {
                 id: 'reactive',
@@ -648,7 +514,6 @@
                 description: 'Core Network Protocol',
                 transactions: 45832,
                 volume: '2.4M REACT',
-                gasUsed: 0.003,
                 status: 'active'
             },
             {
@@ -659,7 +524,6 @@
                 description: 'Web3 Survey & Quest Platform',
                 transactions: 3247,
                 volume: '125K REACT',
-                gasUsed: 0.0028,
                 status: 'active'
             },
             {
@@ -670,7 +534,6 @@
                 description: 'On-chain Gaming Platform',
                 transactions: 1856,
                 volume: '87K REACT',
-                gasUsed: 0.0034,
                 status: 'active'
             }
         ];
@@ -840,8 +703,7 @@
                     <div>${d.description}</div>
                     <div style="margin-top: 8px; color: var(--text-secondary);">
                         Transactions: ${d.transactions.toLocaleString()}<br>
-                        Volume: ${d.volume}<br>
-                        Avg Gas: ${d.gasUsed} REACT
+                        Volume: ${d.volume}
                     </div>
                 </div>
             `;
@@ -933,10 +795,6 @@
                             <div class="metric-value">${company.volume}</div>
                             <div class="metric-label">Volume</div>
                         </div>
-                        <div class="metric">
-                            <div class="metric-value">${company.gasUsed} REACT</div>
-                            <div class="metric-label">Avg Gas</div>
-                        </div>
                     </div>
                 `;
                 
@@ -955,14 +813,6 @@
             });
         }
 
-        // Update stats
-        function updateStats() {
-            document.getElementById('totalCompanies').textContent = companies.length - 1; // Exclude Reactive Network itself
-            document.getElementById('totalTransactions').textContent = '5.1K';
-            document.getElementById('dailyVolume').textContent = '212K';
-            document.getElementById('avgGas').textContent = '0.0031';
-        }
-
         // Simulate live activity
         function addActivity() {
             const activities = [
@@ -976,25 +826,10 @@
                 'Cross-chain message received',
                 'Gas optimization executed'
             ];
-            
-            const activityItems = document.getElementById('activityItems');
-            const activity = activities[Math.floor(Math.random() * activities.length)];
-            
-            const item = document.createElement('div');
-            item.className = 'activity-item';
-            item.textContent = activity;
-            
-            activityItems.insertBefore(item, activityItems.firstChild);
-            
-            // Keep only last 10 items
-            while (activityItems.children.length > 10) {
-                activityItems.removeChild(activityItems.lastChild);
-            }
         }
 
         // Initialize
         populateSidebar();
-        updateStats();
         setInterval(addActivity, 5000);
         addActivity(); // Add first activity
 
