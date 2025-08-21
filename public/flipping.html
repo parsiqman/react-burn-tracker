@@ -1,0 +1,1025 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>REACT Flippening Monitor - Will REACT Flip LINK?</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23FF6B6B'/%3E%3Ctext x='16' y='22' font-size='20' text-anchor='middle' fill='white'%3E🔥%3C/text%3E%3C/svg%3E">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary: #FF6B6B;
+            --primary-dark: #FF5252;
+            --secondary: #4ECDC4;
+            --link-blue: #375BD2;
+            --background: #0E0F14;
+            --surface: #1A1B23;
+            --surface-light: #21222C;
+            --surface-hover: #2A2B38;
+            --border: rgba(255, 255, 255, 0.08);
+            --border-light: rgba(255, 255, 255, 0.04);
+            --text-primary: #FFFFFF;
+            --text-secondary: rgba(255, 255, 255, 0.7);
+            --text-muted: rgba(255, 255, 255, 0.4);
+            --success: #51CF66;
+            --warning: #FFD93D;
+            --gradient-burn: linear-gradient(135deg, #FF6B6B 0%, #FFA502 100%);
+            --gradient-link: linear-gradient(135deg, #375BD2 0%, #2E4BC7 100%);
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--background);
+            color: var(--text-primary);
+            line-height: 1.5;
+            min-height: 100vh;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        /* Background Pattern */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-image: 
+                radial-gradient(circle at 20% 50%, rgba(255, 107, 107, 0.03) 0%, transparent 50%),
+                radial-gradient(circle at 80% 80%, rgba(78, 205, 196, 0.03) 0%, transparent 50%),
+                radial-gradient(circle at 40% 20%, rgba(55, 91, 210, 0.02) 0%, transparent 50%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        /* Navigation */
+        .nav {
+            position: sticky;
+            top: 0;
+            background: rgba(14, 15, 20, 0.95);
+            backdrop-filter: blur(24px);
+            border-bottom: 1px solid var(--border);
+            z-index: 50;
+            height: 64px;
+        }
+
+        .nav-container {
+            max-width: 1280px;
+            margin: 0 auto;
+            padding: 0 24px;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .nav-brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            text-decoration: none;
+            color: var(--text-primary);
+        }
+
+        .nav-brand-icon {
+            width: 40px;
+            height: 40px;
+            background: var(--gradient-burn);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+        }
+
+        .nav-brand-text {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .nav-brand-title {
+            font-size: 18px;
+            font-weight: 700;
+            background: var(--gradient-burn);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .nav-brand-subtitle {
+            font-size: 12px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .nav-menu {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .nav-link {
+            padding: 10px 20px;
+            background: var(--surface);
+            color: var(--text-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .nav-link:hover {
+            background: var(--surface-light);
+            color: var(--text-primary);
+            transform: translateY(-1px);
+        }
+
+        /* Container */
+        .container {
+            max-width: 1280px;
+            margin: 0 auto;
+            padding: 32px 24px;
+            position: relative;
+            z-index: 1;
+        }
+
+        /* Header */
+        .header {
+            text-align: center;
+            margin-bottom: 48px;
+        }
+
+        .header-title {
+            font-size: 48px;
+            font-weight: 800;
+            margin-bottom: 16px;
+            letter-spacing: -0.02em;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .header-info {
+            font-size: 14px;
+            color: var(--text-muted);
+            display: flex;
+            justify-content: center;
+            gap: 24px;
+            flex-wrap: wrap;
+        }
+
+        .header-info-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .header-info-item strong {
+            color: var(--text-secondary);
+        }
+
+        /* Token Cards */
+        .token-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+            margin-bottom: 32px;
+        }
+
+        .token-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 32px;
+            position: relative;
+            overflow: hidden;
+            transition: all 0.3s;
+        }
+
+        .token-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+        }
+
+        .token-card.react::before {
+            background: var(--gradient-burn);
+        }
+
+        .token-card.link::before {
+            background: var(--gradient-link);
+        }
+
+        .token-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+        }
+
+        .token-header {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .token-icon {
+            width: 56px;
+            height: 56px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 32px;
+            font-weight: bold;
+        }
+
+        .token-icon.react {
+            background: var(--gradient-burn);
+        }
+
+        .token-icon.link {
+            background: var(--gradient-link);
+            color: white;
+        }
+
+        .token-name {
+            flex: 1;
+        }
+
+        .token-symbol {
+            font-size: 24px;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+
+        .token-rank {
+            font-size: 12px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .token-metrics {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 20px;
+        }
+
+        .metric {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .metric-label {
+            font-size: 12px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .metric-value {
+            font-size: 24px;
+            font-weight: 700;
+            letter-spacing: -0.01em;
+        }
+
+        .metric-value.price {
+            color: var(--success);
+        }
+
+        .data-freshness {
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid var(--border);
+            font-size: 12px;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .freshness-dot {
+            width: 8px;
+            height: 8px;
+            background: var(--success);
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        /* Flippening Section */
+        .flippening-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 32px;
+            margin-bottom: 32px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .flippening-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 32px;
+        }
+
+        .flippening-icon {
+            font-size: 32px;
+        }
+
+        .flippening-title {
+            font-size: 28px;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--link-blue) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .progress-container {
+            margin-bottom: 24px;
+        }
+
+        .progress-bar {
+            height: 32px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 16px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--primary) 0%, var(--link-blue) 100%);
+            border-radius: 16px;
+            transition: width 1s ease;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            padding-right: 16px;
+        }
+
+        .progress-text {
+            color: white;
+            font-weight: 600;
+            font-size: 14px;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+        }
+
+        .flip-metrics {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 24px;
+        }
+
+        .flip-metric {
+            text-align: center;
+            padding: 20px;
+            background: rgba(255, 255, 255, 0.02);
+            border-radius: 12px;
+            border: 1px solid var(--border-light);
+        }
+
+        .flip-metric-value {
+            font-size: 28px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        .flip-metric-label {
+            font-size: 12px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        /* Historical Chart */
+        .chart-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 32px;
+            margin-bottom: 32px;
+        }
+
+        .chart-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+        }
+
+        .chart-title {
+            font-size: 20px;
+            font-weight: 600;
+        }
+
+        .time-selector {
+            display: flex;
+            gap: 4px;
+            padding: 4px;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 10px;
+        }
+
+        .time-btn {
+            padding: 8px 16px;
+            background: transparent;
+            border: none;
+            border-radius: 6px;
+            color: var(--text-secondary);
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .time-btn:hover {
+            color: var(--text-primary);
+        }
+
+        .time-btn.active {
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-primary);
+        }
+
+        .chart-container {
+            height: 300px;
+            position: relative;
+        }
+
+        /* Milestones */
+        .milestones-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 32px;
+        }
+
+        .milestones-title {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 24px;
+        }
+
+        .milestone {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            padding: 16px;
+            background: rgba(255, 255, 255, 0.02);
+            border-radius: 12px;
+            margin-bottom: 12px;
+            transition: all 0.2s;
+        }
+
+        .milestone:hover {
+            background: rgba(255, 255, 255, 0.04);
+            transform: translateX(4px);
+        }
+
+        .milestone.achieved {
+            background: rgba(81, 207, 102, 0.1);
+            border: 1px solid rgba(81, 207, 102, 0.2);
+        }
+
+        .milestone-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .milestone.achieved .milestone-icon {
+            background: var(--success);
+        }
+
+        .milestone-info {
+            flex: 1;
+        }
+
+        .milestone-title {
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .milestone-description {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .milestone-value {
+            font-weight: 600;
+            color: var(--secondary);
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .token-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .header-title {
+                font-size: 32px;
+            }
+
+            .nav-brand-text {
+                display: none;
+            }
+
+            .flip-metrics {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="nav">
+        <div class="nav-container">
+            <a href="/" class="nav-brand">
+                <div class="nav-brand-icon">🔥</div>
+                <div class="nav-brand-text">
+                    <div class="nav-brand-title">REACT Tracker</div>
+                    <div class="nav-brand-subtitle">Flippening Monitor</div>
+                </div>
+            </a>
+            <div class="nav-menu">
+                <a href="/" class="nav-link">← Back to Dashboard</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Container -->
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1 class="header-title">REACT Flippening Monitor</h1>
+            <div class="header-info">
+                <div class="header-info-item">
+                    <strong>Source:</strong> CoinGecko API
+                </div>
+                <div class="header-info-item">
+                    <strong>Updated:</strong> <span id="lastUpdate">Loading...</span>
+                </div>
+                <div class="header-info-item">
+                    <strong>Refresh:</strong> Every 5 minutes
+                </div>
+            </div>
+        </div>
+
+        <!-- Token Cards -->
+        <div class="token-grid">
+            <!-- REACT Card -->
+            <div class="token-card react">
+                <div class="token-header">
+                    <div class="token-icon react">🔥</div>
+                    <div class="token-name">
+                        <div class="token-symbol">REACT</div>
+                        <div class="token-rank">Rank #<span id="reactRank">287</span></div>
+                    </div>
+                </div>
+                <div class="token-metrics">
+                    <div class="metric">
+                        <div class="metric-label">Price (USD)</div>
+                        <div class="metric-value price">$<span id="reactPrice">0.0234</span></div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-label">Market Cap</div>
+                        <div class="metric-value">$<span id="reactMcap">23.4M</span></div>
+                    </div>
+                </div>
+                <div class="data-freshness">
+                    <div class="freshness-dot"></div>
+                    <span id="reactFreshness">Live data</span>
+                </div>
+            </div>
+
+            <!-- LINK Card -->
+            <div class="token-card link">
+                <div class="token-header">
+                    <div class="token-icon link">⬡</div>
+                    <div class="token-name">
+                        <div class="token-symbol">LINK</div>
+                        <div class="token-rank">Rank #<span id="linkRank">11</span></div>
+                    </div>
+                </div>
+                <div class="token-metrics">
+                    <div class="metric">
+                        <div class="metric-label">Price (USD)</div>
+                        <div class="metric-value price">$<span id="linkPrice">24.77</span></div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-label">Market Cap</div>
+                        <div class="metric-value">$<span id="linkMcap">16.8B</span></div>
+                    </div>
+                </div>
+                <div class="data-freshness">
+                    <div class="freshness-dot"></div>
+                    <span id="linkFreshness">Live data</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Flippening Progress -->
+        <div class="flippening-card">
+            <div class="flippening-header">
+                <div class="flippening-icon">⚡</div>
+                <div class="flippening-title">Flippening Progress</div>
+            </div>
+            
+            <div class="progress-container">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill" style="width: 0.14%">
+                        <span class="progress-text" id="progressText">0.14%</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flip-metrics">
+                <div class="flip-metric">
+                    <div class="flip-metric-value" id="flipRatio">0.14%</div>
+                    <div class="flip-metric-label">Flip Ratio</div>
+                </div>
+                <div class="flip-metric">
+                    <div class="flip-metric-value">$<span id="priceToFlip">1,058.54</span></div>
+                    <div class="flip-metric-label">REACT Price to Flip</div>
+                </div>
+                <div class="flip-metric">
+                    <div class="flip-metric-value"><span id="multiplierNeeded">45,236</span>x</div>
+                    <div class="flip-metric-label">Multiplier Needed</div>
+                </div>
+                <div class="flip-metric">
+                    <div class="flip-metric-value">$<span id="mcapGap">16.78B</span></div>
+                    <div class="flip-metric-label">Market Cap Gap</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Historical Chart -->
+        <div class="chart-card">
+            <div class="chart-header">
+                <div class="chart-title">Flip Ratio History</div>
+                <div class="time-selector">
+                    <button class="time-btn active" data-period="24h">24H</button>
+                    <button class="time-btn" data-period="7d">7D</button>
+                    <button class="time-btn" data-period="30d">30D</button>
+                    <button class="time-btn" data-period="90d">90D</button>
+                    <button class="time-btn" data-period="1y">1Y</button>
+                </div>
+            </div>
+            <div class="chart-container">
+                <canvas id="flipChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Milestones -->
+        <div class="milestones-card">
+            <div class="milestones-title">🎯 Flippening Milestones</div>
+            
+            <div class="milestone" id="milestone1">
+                <div class="milestone-icon">🌱</div>
+                <div class="milestone-info">
+                    <div class="milestone-title">First Steps</div>
+                    <div class="milestone-description">Reach 1% of LINK's market cap</div>
+                </div>
+                <div class="milestone-value">$168M</div>
+            </div>
+
+            <div class="milestone" id="milestone2">
+                <div class="milestone-icon">🚀</div>
+                <div class="milestone-info">
+                    <div class="milestone-title">Momentum Building</div>
+                    <div class="milestone-description">Reach 10% of LINK's market cap</div>
+                </div>
+                <div class="milestone-value">$1.68B</div>
+            </div>
+
+            <div class="milestone" id="milestone3">
+                <div class="milestone-icon">⚡</div>
+                <div class="milestone-info">
+                    <div class="milestone-title">Major Contender</div>
+                    <div class="milestone-description">Reach 50% of LINK's market cap</div>
+                </div>
+                <div class="milestone-value">$8.4B</div>
+            </div>
+
+            <div class="milestone" id="milestone4">
+                <div class="milestone-icon">🏆</div>
+                <div class="milestone-info">
+                    <div class="milestone-title">The Flippening</div>
+                    <div class="milestone-description">Surpass LINK's market cap</div>
+                </div>
+                <div class="milestone-value">$16.8B</div>
+            </div>
+
+            <div class="milestone" id="milestone5">
+                <div class="milestone-icon">👑</div>
+                <div class="milestone-info">
+                    <div class="milestone-title">Dominance</div>
+                    <div class="milestone-description">2x LINK's market cap</div>
+                </div>
+                <div class="milestone-value">$33.6B</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Chart.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+    <script>
+        // Mock data - in production, fetch from API
+        let reactData = {
+            price: 0.0234,
+            marketCap: 23400000,
+            rank: 287,
+            supply: 1000000000
+        };
+
+        let linkData = {
+            price: 24.77,
+            marketCap: 16800000000,
+            rank: 11,
+            supply: 678000000
+        };
+
+        // Format functions
+        function formatNumber(num) {
+            if (num >= 1e9) return (num / 1e9).toFixed(2) + 'B';
+            if (num >= 1e6) return (num / 1e6).toFixed(2) + 'M';
+            if (num >= 1e3) return (num / 1e3).toFixed(2) + 'K';
+            return num.toFixed(2);
+        }
+
+        function formatPrice(price) {
+            if (price < 0.01) return price.toFixed(6);
+            if (price < 1) return price.toFixed(4);
+            return price.toFixed(2);
+        }
+
+        // Update UI
+        function updateUI() {
+            // Update token cards
+            document.getElementById('reactPrice').textContent = formatPrice(reactData.price);
+            document.getElementById('reactMcap').textContent = formatNumber(reactData.marketCap);
+            document.getElementById('reactRank').textContent = reactData.rank;
+            
+            document.getElementById('linkPrice').textContent = formatPrice(linkData.price);
+            document.getElementById('linkMcap').textContent = formatNumber(linkData.marketCap);
+            document.getElementById('linkRank').textContent = linkData.rank;
+            
+            // Calculate flip metrics
+            const flipRatio = (reactData.marketCap / linkData.marketCap) * 100;
+            const priceToFlip = linkData.marketCap / reactData.supply;
+            const multiplierNeeded = priceToFlip / reactData.price;
+            const mcapGap = linkData.marketCap - reactData.marketCap;
+            
+            // Update progress
+            document.getElementById('progressFill').style.width = Math.min(flipRatio, 100) + '%';
+            document.getElementById('progressText').textContent = flipRatio.toFixed(2) + '%';
+            
+            // Update metrics
+            document.getElementById('flipRatio').textContent = flipRatio.toFixed(2) + '%';
+            document.getElementById('priceToFlip').textContent = formatPrice(priceToFlip);
+            document.getElementById('multiplierNeeded').textContent = formatNumber(multiplierNeeded);
+            document.getElementById('mcapGap').textContent = formatNumber(mcapGap);
+            
+            // Update milestones
+            updateMilestones();
+            
+            // Update timestamp
+            document.getElementById('lastUpdate').textContent = new Date().toLocaleString();
+        }
+
+        // Update milestones
+        function updateMilestones() {
+            const milestones = [
+                { id: 'milestone1', target: linkData.marketCap * 0.01 },
+                { id: 'milestone2', target: linkData.marketCap * 0.10 },
+                { id: 'milestone3', target: linkData.marketCap * 0.50 },
+                { id: 'milestone4', target: linkData.marketCap },
+                { id: 'milestone5', target: linkData.marketCap * 2 }
+            ];
+            
+            milestones.forEach(milestone => {
+                const element = document.getElementById(milestone.id);
+                if (reactData.marketCap >= milestone.target) {
+                    element.classList.add('achieved');
+                } else {
+                    element.classList.remove('achieved');
+                }
+            });
+        }
+
+        // Initialize chart
+        const ctx = document.getElementById('flipChart').getContext('2d');
+        
+        const gradient = ctx.createLinearGradient(0, 0, 0, 300);
+        gradient.addColorStop(0, 'rgba(255, 107, 107, 0.3)');
+        gradient.addColorStop(1, 'rgba(255, 107, 107, 0)');
+
+        const flipChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Flip Ratio (%)',
+                    data: [],
+                    borderColor: '#FF6B6B',
+                    backgroundColor: gradient,
+                    borderWidth: 2,
+                    tension: 0.4,
+                    fill: true,
+                    pointRadius: 0,
+                    pointHoverRadius: 4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    intersect: false,
+                    mode: 'index'
+                },
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(26, 27, 35, 0.95)',
+                        titleColor: '#FFFFFF',
+                        bodyColor: 'rgba(255, 255, 255, 0.7)',
+                        borderColor: 'rgba(255, 255, 255, 0.08)',
+                        borderWidth: 1,
+                        padding: 12,
+                        cornerRadius: 8,
+                        displayColors: false,
+                        callbacks: {
+                            label: function(context) {
+                                return 'Flip Ratio: ' + context.parsed.y.toFixed(3) + '%';
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: {
+                            color: 'rgba(255, 255, 255, 0.04)',
+                            drawBorder: false
+                        },
+                        ticks: {
+                            color: 'rgba(255, 255, 255, 0.4)',
+                            font: { size: 11 },
+                            maxRotation: 0
+                        }
+                    },
+                    y: {
+                        grid: {
+                            color: 'rgba(255, 255, 255, 0.04)',
+                            drawBorder: false
+                        },
+                        ticks: {
+                            color: 'rgba(255, 255, 255, 0.4)',
+                            font: { size: 11 },
+                            callback: function(value) {
+                                return value.toFixed(2) + '%';
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        // Generate chart data
+        function generateChartData(period) {
+            const now = Date.now();
+            const data = [];
+            const labels = [];
+            
+            let points = 24;
+            let interval = 3600000; // 1 hour
+            
+            switch(period) {
+                case '7d':
+                    points = 7 * 24;
+                    break;
+                case '30d':
+                    points = 30;
+                    interval = 86400000; // 1 day
+                    break;
+                case '90d':
+                    points = 90;
+                    interval = 86400000;
+                    break;
+                case '1y':
+                    points = 52;
+                    interval = 604800000; // 1 week
+                    break;
+            }
+            
+            // Generate mock historical data
+            for (let i = points; i >= 0; i--) {
+                const timestamp = now - (i * interval);
+                const date = new Date(timestamp);
+                
+                // Simulate gradual growth
+                const baseRatio = 0.14;
+                const growth = (points - i) / points * 0.02;
+                const randomVariation = (Math.random() - 0.5) * 0.01;
+                const ratio = Math.max(0.10, baseRatio + growth + randomVariation);
+                
+                data.push(ratio);
+                
+                if (period === '24h') {
+                    labels.push(date.getHours() + ':00');
+                } else if (period === '7d') {
+                    if (i % 24 === 0) {
+                        labels.push(date.toLocaleDateString('en', { weekday: 'short' }));
+                    } else {
+                        labels.push('');
+                    }
+                } else {
+                    labels.push(date.toLocaleDateString('en', { month: 'short', day: 'numeric' }));
+                }
+            }
+            
+            return { labels, data };
+        }
+
+        // Time selector
+        document.querySelectorAll('.time-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                document.querySelectorAll('.time-btn').forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+                
+                const { labels, data } = generateChartData(this.dataset.period);
+                flipChart.data.labels = labels;
+                flipChart.data.datasets[0].data = data;
+                flipChart.update();
+            });
+        });
+
+        // Simulate live updates
+        function simulatePriceChanges() {
+            // Small random changes to simulate market movement
+            reactData.price *= (1 + (Math.random() - 0.5) * 0.02);
+            reactData.marketCap = reactData.price * reactData.supply;
+            
+            linkData.price *= (1 + (Math.random() - 0.5) * 0.01);
+            linkData.marketCap = linkData.price * linkData.supply;
+            
+            updateUI();
+        }
+
+        // Initialize
+        updateUI();
+        const { labels, data } = generateChartData('24h');
+        flipChart.data.labels = labels;
+        flipChart.data.datasets[0].data = data;
+        flipChart.update();
+
+        // Update every 5 seconds for demo (in production, this would be API calls)
+        setInterval(simulatePriceChanges, 5000);
+
+        // Fetch real data (implement when API is ready)
+        async function fetchRealData() {
+            try {
+                // const response = await fetch('/api/flippening/react-link');
+                // const data = await response.json();
+                // reactData = data.react;
+                // linkData = data.link;
+                // updateUI();
+            } catch (error) {
+                console.error('Error fetching data:', error);
+            }
+        }
+
+        // Refresh every 5 minutes
+        setInterval(fetchRealData, 5 * 60 * 1000);
+    </script>
+</body>
+</html>
