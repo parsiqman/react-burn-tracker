@@ -36,6 +36,7 @@
             --gradient-dark: linear-gradient(135deg, #0A0E27 0%, #1A1E3A 100%);
             --gradient-purple: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             --gradient-teal: linear-gradient(135deg, #4ECDC4 0%, #44A08D 100%);
+            --gradient-yield: linear-gradient(135deg, #00D395 0%, #00A87D 100%);
             --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
             --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
             --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
@@ -401,6 +402,24 @@
             border-color: rgba(255, 107, 107, 0.3);
         }
 
+        .stat-card.yield-card {
+            background: linear-gradient(135deg, rgba(0, 211, 149, 0.1), rgba(0, 168, 125, 0.1));
+            border-color: rgba(0, 211, 149, 0.3);
+        }
+
+        .demo-badge {
+            display: inline-block;
+            padding: 4px 8px;
+            background: rgba(255, 217, 61, 0.2);
+            color: var(--warning);
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-left: 8px;
+        }
+
         .card-hover-text {
             position: absolute;
             bottom: 12px;
@@ -709,7 +728,7 @@
                 </div>
             </div>
 
-            <!-- NEW: Flippening Tracker Card -->
+            <!-- Flippening Tracker Card -->
             <div class="stat-card special flippening-card" onclick="window.location.href='/flipping.html'">
                 <div class="stat-header">
                     <div class="stat-label">Flippening Tracker</div>
@@ -720,6 +739,23 @@
                 <div class="card-bg-icon">🚀</div>
                 <div class="card-hover-text">
                     Monitor Progress <span>→</span>
+                </div>
+            </div>
+
+            <!-- NEW: Reactive Yield Demo Card -->
+            <div class="stat-card special yield-card" onclick="window.location.href='/reactiveyield.html'">
+                <div class="stat-header">
+                    <div class="stat-label">
+                        Reactive Yield
+                        <span class="demo-badge">Demo</span>
+                    </div>
+                    <div class="stat-icon">💰</div>
+                </div>
+                <div class="stat-value" style="font-size: 24px; background: linear-gradient(135deg, #00D395 0%, #00A87D 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">18.42% APY</div>
+                <div class="stat-change">Autonomous yield optimization</div>
+                <div class="card-bg-icon">💎</div>
+                <div class="card-hover-text">
+                    Try Demo <span>→</span>
                 </div>
             </div>
         </div>
