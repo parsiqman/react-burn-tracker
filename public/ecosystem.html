@@ -1,0 +1,1012 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ecosystem Monitor - Reactive Network</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23FF6B6B'/%3E%3Ctext x='16' y='22' font-size='20' text-anchor='middle' fill='white'%3E🔥%3C/text%3E%3C/svg%3E">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary: #FF6B6B;
+            --primary-dark: #FF5252;
+            --secondary: #4ECDC4;
+            --background: #0E0F14;
+            --surface: #1A1B23;
+            --surface-light: #21222C;
+            --surface-hover: #2A2B38;
+            --border: rgba(255, 255, 255, 0.08);
+            --border-light: rgba(255, 255, 255, 0.04);
+            --text-primary: #FFFFFF;
+            --text-secondary: rgba(255, 255, 255, 0.7);
+            --text-muted: rgba(255, 255, 255, 0.4);
+            --success: #51CF66;
+            --warning: #FFD93D;
+            --purple: #764ba2;
+            --orange: #FFA502;
+            --gradient-burn: linear-gradient(135deg, #FF6B6B 0%, #FFA502 100%);
+            --gradient-teal: linear-gradient(135deg, #4ECDC4 0%, #44A08D 100%);
+            --gradient-purple: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --gradient-network: radial-gradient(circle, #FF6B6B 0%, #FF5252 50%, #FF3838 100%);
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--background);
+            color: var(--text-primary);
+            min-height: 100vh;
+            overflow: hidden;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        /* Background with animated grid */
+        .background-grid {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: 
+                linear-gradient(rgba(78, 205, 196, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(78, 205, 196, 0.03) 1px, transparent 1px);
+            background-size: 50px 50px;
+            animation: grid-move 20s linear infinite;
+            z-index: 0;
+        }
+
+        @keyframes grid-move {
+            0% { transform: translate(0, 0); }
+            100% { transform: translate(50px, 50px); }
+        }
+
+        /* Navigation */
+        .nav {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: rgba(14, 15, 20, 0.95);
+            backdrop-filter: blur(24px);
+            border-bottom: 1px solid var(--border);
+            z-index: 100;
+            height: 72px;
+        }
+
+        .nav-container {
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 0 24px;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .nav-brand {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .nav-logo {
+            width: 48px;
+            height: 48px;
+            background: var(--gradient-burn);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            box-shadow: 0 4px 12px rgba(255, 107, 107, 0.2);
+            animation: logo-pulse 3s ease-in-out infinite;
+        }
+
+        @keyframes logo-pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+
+        .nav-text {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .nav-title {
+            font-size: 20px;
+            font-weight: 700;
+            background: var(--gradient-burn);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .nav-subtitle {
+            font-size: 12px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .nav-actions {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .nav-link {
+            color: var(--secondary);
+            text-decoration: none;
+            padding: 10px 20px;
+            border: 1px solid var(--secondary);
+            border-radius: 8px;
+            transition: all 0.3s ease;
+            font-weight: 500;
+        }
+
+        .nav-link:hover {
+            background: rgba(78, 205, 196, 0.1);
+            transform: translateY(-2px);
+        }
+
+        /* Main Visualization Container */
+        .main-container {
+            position: fixed;
+            top: 72px;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            display: flex;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 380px;
+            background: rgba(26, 27, 35, 0.6);
+            backdrop-filter: blur(20px);
+            border-right: 1px solid var(--border);
+            overflow-y: auto;
+            padding: 24px;
+            z-index: 10;
+        }
+
+        .sidebar-header {
+            margin-bottom: 24px;
+        }
+
+        .sidebar-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--secondary);
+            margin-bottom: 8px;
+        }
+
+        .sidebar-subtitle {
+            font-size: 13px;
+            color: var(--text-muted);
+        }
+
+        /* Stats Cards */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+
+        .stat-card {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+            transition: all 0.3s ease;
+        }
+
+        .stat-card:hover {
+            background: rgba(255, 255, 255, 0.05);
+            transform: translateY(-2px);
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: 700;
+            background: var(--gradient-teal);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 4px;
+        }
+
+        .stat-label {
+            font-size: 11px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        /* Company List */
+        .company-list {
+            margin-top: 24px;
+        }
+
+        .company-item {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 12px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .company-item::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: var(--gradient-teal);
+            transform: scaleY(0);
+            transition: transform 0.3s ease;
+        }
+
+        .company-item:hover {
+            background: rgba(255, 255, 255, 0.05);
+            transform: translateX(4px);
+        }
+
+        .company-item:hover::before {
+            transform: scaleY(1);
+        }
+
+        .company-item.active {
+            background: rgba(78, 205, 196, 0.1);
+            border-color: var(--secondary);
+        }
+
+        .company-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .company-name {
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .company-status {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 11px;
+            color: var(--success);
+        }
+
+        .status-dot {
+            width: 6px;
+            height: 6px;
+            background: var(--success);
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        @keyframes rotate {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        @keyframes pulse-ring {
+            0% {
+                stroke-opacity: 0.4;
+                stroke-width: 1;
+            }
+            50% {
+                stroke-opacity: 0;
+                stroke-width: 3;
+            }
+            100% {
+                stroke-opacity: 0;
+                stroke-width: 1;
+            }
+        }
+
+        .company-address {
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+        }
+
+        .company-metrics {
+            display: flex;
+            gap: 16px;
+            font-size: 12px;
+        }
+
+        .metric {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .metric-value {
+            color: var(--text-secondary);
+            font-weight: 600;
+        }
+
+        .metric-label {
+            color: var(--text-muted);
+            font-size: 10px;
+        }
+
+        /* Visualization Area */
+        .visualization {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+        }
+
+        #network-graph {
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Legend */
+        .legend {
+            position: absolute;
+            bottom: 24px;
+            right: 24px;
+            background: rgba(26, 27, 35, 0.9);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+            z-index: 20;
+        }
+
+        .legend-title {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-bottom: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .legend-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+
+        /* Activity Feed */
+        .activity-feed {
+            position: absolute;
+            top: 24px;
+            right: 24px;
+            width: 320px;
+            max-height: 200px;
+            background: rgba(26, 27, 35, 0.9);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+            overflow-y: auto;
+            z-index: 20;
+        }
+
+        .activity-title {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-bottom: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .activity-item {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+            padding-left: 16px;
+            position: relative;
+            animation: slide-in 0.5s ease;
+        }
+
+        @keyframes slide-in {
+            from {
+                opacity: 0;
+                transform: translateX(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        .activity-item::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 5px;
+            width: 4px;
+            height: 4px;
+            background: var(--secondary);
+            border-radius: 50%;
+        }
+
+        /* Tooltip */
+        .tooltip {
+            position: absolute;
+            background: rgba(26, 27, 35, 0.95);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px;
+            pointer-events: none;
+            z-index: 1000;
+            font-size: 12px;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+            display: none;
+        }
+
+        /* Graph Styles */
+        .node {
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .node:hover {
+            filter: brightness(1.2);
+        }
+
+        .link {
+            stroke-opacity: 0.6;
+            transition: all 0.3s ease;
+        }
+
+        .link:hover {
+            stroke-opacity: 1;
+            stroke-width: 3;
+        }
+
+        .node-label {
+            font-size: 11px;
+            font-weight: 600;
+            fill: var(--text-primary);
+            pointer-events: none;
+            text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+        }
+
+        /* Responsive */
+        @media (max-width: 1024px) {
+            .sidebar {
+                width: 320px;
+            }
+            .activity-feed {
+                display: none;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .sidebar {
+                display: none;
+            }
+            .legend {
+                bottom: 12px;
+                right: 12px;
+                padding: 12px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="background-grid"></div>
+
+    <!-- Navigation -->
+    <nav class="nav">
+        <div class="nav-container">
+            <div class="nav-brand">
+                <div class="nav-logo">🌐</div>
+                <div class="nav-text">
+                    <div class="nav-title">Ecosystem Monitor</div>
+                    <div class="nav-subtitle">Reactive Network</div>
+                </div>
+            </div>
+            <div class="nav-actions">
+                <a href="/" class="nav-link">← Back to Dashboard</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Container -->
+    <div class="main-container">
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-title">Network Ecosystem</div>
+                <div class="sidebar-subtitle">Real-time company activity on Reactive Network</div>
+            </div>
+
+            <!-- Stats -->
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-value" id="totalCompanies">0</div>
+                    <div class="stat-label">Active Companies</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="totalTransactions">0</div>
+                    <div class="stat-label">Total Transactions</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="dailyVolume">0</div>
+                    <div class="stat-label">24h Volume</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="avgGas">0</div>
+                    <div class="stat-label">Avg Gas Used</div>
+                </div>
+            </div>
+
+            <!-- Company List -->
+            <div class="company-list" id="companyList">
+                <!-- Companies will be added here dynamically -->
+            </div>
+            
+            <!-- Add New Company Section -->
+            <div style="margin-top: 24px; padding: 16px; background: rgba(78, 205, 196, 0.05); border: 1px solid rgba(78, 205, 196, 0.2); border-radius: 12px;">
+                <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 8px;">
+                    🔍 Discovering New Companies
+                </div>
+                <div style="font-size: 11px; color: var(--text-muted); line-height: 1.5;">
+                    The ecosystem is growing. As new companies integrate with Reactive Network, they'll automatically appear here.
+                </div>
+            </div>
+        </div>
+
+        <!-- Visualization -->
+        <div class="visualization">
+            <svg id="network-graph"></svg>
+
+            <!-- Activity Feed -->
+            <div class="activity-feed">
+                <div class="activity-title">Live Activity</div>
+                <div id="activityItems"></div>
+            </div>
+
+            <!-- Legend -->
+            <div class="legend">
+                <div class="legend-title">Legend</div>
+                <div class="legend-item">
+                    <div class="legend-dot" style="background: radial-gradient(circle, #FF6B6B, #FF3838);"></div>
+                    <span>Reactive Network</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-dot" style="background: linear-gradient(135deg, #667eea, #764ba2);"></div>
+                    <span>Platform</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-dot" style="background: linear-gradient(135deg, #51CF66, #21C55F);"></div>
+                    <span>Gaming</span>
+                </div>
+                <div class="legend-item" style="opacity: 0.5;">
+                    <div class="legend-dot" style="background: #4ECDC4;"></div>
+                    <span>More Coming Soon...</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tooltip -->
+    <div class="tooltip" id="tooltip"></div>
+
+    <script>
+        // Company data with contract addresses - REAL COMPANIES ONLY
+        // To add new companies as they're discovered, simply add them here:
+        // {
+        //     id: 'unique-id',
+        //     name: 'Company Name',
+        //     type: 'platform' | 'gaming' | 'defi' | 'infrastructure' | 'other',
+        //     address: '0x...',
+        //     description: 'What they do',
+        //     transactions: 0,
+        //     volume: '0 REACT',
+        //     gasUsed: 0,
+        //     status: 'active'
+        // }
+        const companies = [
+            {
+                id: 'reactive',
+                name: 'Reactive Network',
+                type: 'core',
+                address: '0x0000000000000000000000000000000000fffFfF',
+                description: 'Core Network Protocol',
+                transactions: 45832,
+                volume: '2.4M REACT',
+                gasUsed: 0.003,
+                status: 'active'
+            },
+            {
+                id: 'qstn',
+                name: 'QSTN',
+                type: 'platform',
+                address: '0x05f5e6b7972275535a5A99A85b7e85821E752CF1',
+                description: 'Web3 Survey & Quest Platform',
+                transactions: 3247,
+                volume: '125K REACT',
+                gasUsed: 0.0028,
+                status: 'active'
+            },
+            {
+                id: 'world-of-rogues',
+                name: 'World of Rogues',
+                type: 'gaming',
+                address: '0xC5Bd3532198e2D561f817c22524D1F6f10415bc2',
+                description: 'On-chain Gaming Platform',
+                transactions: 1856,
+                volume: '87K REACT',
+                gasUsed: 0.0034,
+                status: 'active'
+            }
+        ];
+
+        // Generate links between companies
+        const links = [
+            { source: 'reactive', target: 'qstn', value: 4 },
+            { source: 'reactive', target: 'world-of-rogues', value: 3 }
+        ];
+        
+        // Add placeholder nodes for future growth (visual only)
+        const placeholderNodes = [
+            { id: 'future1', name: '?', type: 'placeholder', x: 150, y: 150 },
+            { id: 'future2', name: '?', type: 'placeholder', x: 750, y: 450 },
+            { id: 'future3', name: '?', type: 'placeholder', x: 450, y: 100 }
+        ];
+
+        // Initialize D3 Force Simulation
+        const width = window.innerWidth - 380; // Subtract sidebar width
+        const height = window.innerHeight - 72; // Subtract nav height
+
+        const svg = d3.select('#network-graph')
+            .attr('width', width)
+            .attr('height', height);
+
+        // Create gradient definitions
+        const defs = svg.append('defs');
+
+        // Add gradients for nodes
+        const networkGradient = defs.append('radialGradient')
+            .attr('id', 'network-gradient');
+        networkGradient.append('stop')
+            .attr('offset', '0%')
+            .attr('stop-color', '#FF6B6B');
+        networkGradient.append('stop')
+            .attr('offset', '100%')
+            .attr('stop-color', '#FF3838');
+
+        const platformGradient = defs.append('linearGradient')
+            .attr('id', 'platform-gradient');
+        platformGradient.append('stop')
+            .attr('offset', '0%')
+            .attr('stop-color', '#667eea');
+        platformGradient.append('stop')
+            .attr('offset', '100%')
+            .attr('stop-color', '#764ba2');
+
+        const gamingGradient = defs.append('linearGradient')
+            .attr('id', 'gaming-gradient');
+        gamingGradient.append('stop')
+            .attr('offset', '0%')
+            .attr('stop-color', '#51CF66');
+        gamingGradient.append('stop')
+            .attr('offset', '100%')
+            .attr('stop-color', '#21C55F');
+
+        // Add glow filter
+        const filter = defs.append('filter')
+            .attr('id', 'glow');
+        filter.append('feGaussianBlur')
+            .attr('stdDeviation', '3')
+            .attr('result', 'coloredBlur');
+        const feMerge = filter.append('feMerge');
+        feMerge.append('feMergeNode')
+            .attr('in', 'coloredBlur');
+        feMerge.append('feMergeNode')
+            .attr('in', 'SourceGraphic');
+
+        // Create simulation
+        const simulation = d3.forceSimulation(companies)
+            .force('link', d3.forceLink(links)
+                .id(d => d.id)
+                .distance(d => 250))
+            .force('charge', d3.forceManyBody().strength(-400))
+            .force('center', d3.forceCenter(width / 2, height / 2))
+            .force('collision', d3.forceCollide().radius(80));
+
+        // Create link elements
+        const link = svg.append('g')
+            .selectAll('line')
+            .data(links)
+            .enter().append('line')
+            .attr('class', 'link')
+            .attr('stroke', '#4ECDC4')
+            .attr('stroke-width', d => Math.sqrt(d.value))
+            .attr('stroke-opacity', 0.4);
+
+        // Create node group
+        const node = svg.append('g')
+            .selectAll('g')
+            .data(companies)
+            .enter().append('g')
+            .attr('class', 'node')
+            .call(d3.drag()
+                .on('start', dragstarted)
+                .on('drag', dragged)
+                .on('end', dragended));
+
+        // Add placeholder nodes (non-interactive)
+        const placeholders = svg.append('g')
+            .selectAll('g')
+            .data(placeholderNodes)
+            .enter().append('g')
+            .attr('transform', d => `translate(${d.x},${d.y})`);
+
+        placeholders.append('circle')
+            .attr('r', 20)
+            .attr('fill', 'none')
+            .attr('stroke', 'rgba(255, 255, 255, 0.1)')
+            .attr('stroke-width', 2)
+            .attr('stroke-dasharray', '5,5')
+            .style('animation', 'pulse 3s ease-in-out infinite');
+
+        placeholders.append('text')
+            .attr('text-anchor', 'middle')
+            .attr('dy', 5)
+            .text('?')
+            .style('fill', 'rgba(255, 255, 255, 0.2)')
+            .style('font-size', '18px')
+            .style('font-weight', '600');
+
+        // Add circles for nodes
+        node.append('circle')
+            .attr('r', d => d.id === 'reactive' ? 40 : 30)
+            .attr('fill', d => {
+                if (d.id === 'reactive') return 'url(#network-gradient)';
+                if (d.type === 'platform') return 'url(#platform-gradient)';
+                if (d.type === 'gaming') return 'url(#gaming-gradient)';
+                return '#4ECDC4';
+            })
+            .attr('filter', 'url(#glow)')
+            .attr('stroke', '#fff')
+            .attr('stroke-width', 2)
+            .attr('stroke-opacity', 0.3);
+
+        // Add pulsing outer ring for active companies
+        node.append('circle')
+            .attr('r', d => d.id === 'reactive' ? 45 : 35)
+            .attr('fill', 'none')
+            .attr('stroke', d => {
+                if (d.id === 'reactive') return '#FF6B6B';
+                if (d.type === 'platform') return '#667eea';
+                if (d.type === 'gaming') return '#51CF66';
+                return '#4ECDC4';
+            })
+            .attr('stroke-width', 1)
+            .attr('stroke-opacity', 0)
+            .style('animation', 'pulse-ring 3s ease-in-out infinite');
+
+        // Add labels
+        node.append('text')
+            .attr('class', 'node-label')
+            .attr('text-anchor', 'middle')
+            .attr('dy', d => d.id === 'reactive' ? 55 : 40)
+            .text(d => d.name);
+
+        // Add tooltips
+        node.on('mouseover', function(event, d) {
+            const tooltip = document.getElementById('tooltip');
+            tooltip.style.display = 'block';
+            tooltip.style.left = event.pageX + 10 + 'px';
+            tooltip.style.top = event.pageY + 10 + 'px';
+            tooltip.innerHTML = `
+                <strong>${d.name}</strong><br>
+                <span style="color: var(--text-muted); font-size: 10px;">${d.address}</span><br>
+                <div style="margin-top: 8px;">
+                    <div>${d.description}</div>
+                    <div style="margin-top: 8px; color: var(--text-secondary);">
+                        Transactions: ${d.transactions.toLocaleString()}<br>
+                        Volume: ${d.volume}<br>
+                        Avg Gas: ${d.gasUsed} REACT
+                    </div>
+                </div>
+            `;
+        }).on('mouseout', function() {
+            document.getElementById('tooltip').style.display = 'none';
+        });
+
+        // Add particle animation along links
+        function animateParticles() {
+            links.forEach(link => {
+                const particle = svg.append('circle')
+                    .attr('r', 3)
+                    .attr('fill', '#4ECDC4')
+                    .attr('opacity', 0.8);
+
+                const source = companies.find(c => c.id === link.source.id || c.id === link.source);
+                const target = companies.find(c => c.id === link.target.id || c.id === link.target);
+
+                if (source && target) {
+                    particle
+                        .attr('cx', source.x)
+                        .attr('cy', source.y)
+                        .transition()
+                        .duration(2000 + Math.random() * 2000)
+                        .ease(d3.easeLinear)
+                        .attr('cx', target.x)
+                        .attr('cy', target.y)
+                        .on('end', function() {
+                            d3.select(this).remove();
+                        });
+                }
+            });
+        }
+
+        // Run particle animation periodically
+        setInterval(animateParticles, 2000);
+
+        // Update positions on tick
+        simulation.on('tick', () => {
+            link
+                .attr('x1', d => d.source.x)
+                .attr('y1', d => d.source.y)
+                .attr('x2', d => d.target.x)
+                .attr('y2', d => d.target.y);
+
+            node.attr('transform', d => `translate(${d.x},${d.y})`);
+        });
+
+        // Drag functions
+        function dragstarted(event, d) {
+            if (!event.active) simulation.alphaTarget(0.3).restart();
+            d.fx = d.x;
+            d.fy = d.y;
+        }
+
+        function dragged(event, d) {
+            d.fx = event.x;
+            d.fy = event.y;
+        }
+
+        function dragended(event, d) {
+            if (!event.active) simulation.alphaTarget(0);
+            d.fx = null;
+            d.fy = null;
+        }
+
+        // Populate sidebar
+        function populateSidebar() {
+            const companyList = document.getElementById('companyList');
+            
+            companies.filter(c => c.id !== 'reactive').forEach(company => {
+                const item = document.createElement('div');
+                item.className = 'company-item';
+                item.innerHTML = `
+                    <div class="company-header">
+                        <div class="company-name">${company.name}</div>
+                        <div class="company-status">
+                            <div class="status-dot"></div>
+                            Active
+                        </div>
+                    </div>
+                    <div class="company-address">${company.address.substring(0, 10)}...${company.address.substring(38)}</div>
+                    <div class="company-metrics">
+                        <div class="metric">
+                            <div class="metric-value">${company.transactions.toLocaleString()}</div>
+                            <div class="metric-label">Transactions</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-value">${company.volume}</div>
+                            <div class="metric-label">Volume</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-value">${company.gasUsed} REACT</div>
+                            <div class="metric-label">Avg Gas</div>
+                        </div>
+                    </div>
+                `;
+                
+                item.addEventListener('click', () => {
+                    // Highlight node in graph
+                    node.selectAll('circle')
+                        .attr('stroke-width', d => d.id === company.id ? 4 : 2)
+                        .attr('stroke', d => d.id === company.id ? '#4ECDC4' : '#fff');
+                    
+                    // Mark item as active
+                    document.querySelectorAll('.company-item').forEach(el => el.classList.remove('active'));
+                    item.classList.add('active');
+                });
+                
+                companyList.appendChild(item);
+            });
+        }
+
+        // Update stats
+        function updateStats() {
+            document.getElementById('totalCompanies').textContent = companies.length - 1; // Exclude Reactive Network itself
+            document.getElementById('totalTransactions').textContent = '5.1K';
+            document.getElementById('dailyVolume').textContent = '212K';
+            document.getElementById('avgGas').textContent = '0.0031';
+        }
+
+        // Simulate live activity
+        function addActivity() {
+            const activities = [
+                'QSTN deployed new survey contract',
+                'World of Rogues processed game transaction',
+                'QSTN rewards distributed',
+                'World of Rogues: New player joined',
+                'QSTN quest completed',
+                'World of Rogues: Battle resolved on-chain',
+                'New contract interaction detected',
+                'Cross-chain message received',
+                'Gas optimization executed'
+            ];
+            
+            const activityItems = document.getElementById('activityItems');
+            const activity = activities[Math.floor(Math.random() * activities.length)];
+            
+            const item = document.createElement('div');
+            item.className = 'activity-item';
+            item.textContent = activity;
+            
+            activityItems.insertBefore(item, activityItems.firstChild);
+            
+            // Keep only last 10 items
+            while (activityItems.children.length > 10) {
+                activityItems.removeChild(activityItems.lastChild);
+            }
+        }
+
+        // Initialize
+        populateSidebar();
+        updateStats();
+        setInterval(addActivity, 5000);
+        addActivity(); // Add first activity
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            const newWidth = window.innerWidth - 380;
+            const newHeight = window.innerHeight - 72;
+            
+            svg.attr('width', newWidth).attr('height', newHeight);
+            simulation.force('center', d3.forceCenter(newWidth / 2, newHeight / 2));
+            simulation.alpha(0.3).restart();
+        });
+    </script>
+</body>
+</html>
