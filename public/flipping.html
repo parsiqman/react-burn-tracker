@@ -61,6 +61,41 @@
             z-index: 0;
         }
 
+        /* Loading State */
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(14, 15, 20, 0.9);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s;
+        }
+
+        .loading-overlay.show {
+            opacity: 1;
+            pointer-events: all;
+        }
+
+        .loading-spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid rgba(255, 255, 255, 0.1);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
         /* Navigation */
         .nav {
             position: sticky;
@@ -302,6 +337,20 @@
             color: var(--success);
         }
 
+        .price-change {
+            font-size: 12px;
+            font-weight: 600;
+            margin-top: 4px;
+        }
+
+        .price-change.positive {
+            color: var(--success);
+        }
+
+        .price-change.negative {
+            color: var(--primary);
+        }
+
         .data-freshness {
             margin-top: 20px;
             padding-top: 20px;
@@ -324,6 +373,21 @@
         @keyframes pulse {
             0%, 100% { opacity: 1; }
             50% { opacity: 0.5; }
+        }
+
+        /* Error State */
+        .error-message {
+            background: rgba(255, 107, 107, 0.1);
+            border: 1px solid rgba(255, 107, 107, 0.3);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 24px;
+            text-align: center;
+            display: none;
+        }
+
+        .error-message.show {
+            display: block;
         }
 
         /* Flippening Section */
@@ -378,6 +442,7 @@
             align-items: center;
             justify-content: flex-end;
             padding-right: 16px;
+            min-width: 40px;
         }
 
         .progress-text {
@@ -559,6 +624,11 @@
     </style>
 </head>
 <body>
+    <!-- Loading Overlay -->
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-spinner"></div>
+    </div>
+
     <!-- Navigation -->
     <nav class="nav">
         <div class="nav-container">
@@ -588,9 +658,14 @@
                     <strong>Updated:</strong> <span id="lastUpdate">Loading...</span>
                 </div>
                 <div class="header-info-item">
-                    <strong>Refresh:</strong> Every 5 minutes
+                    <strong>Auto-refresh:</strong> Every 60 seconds
                 </div>
             </div>
+        </div>
+
+        <!-- Error Message -->
+        <div class="error-message" id="errorMessage">
+            Failed to fetch price data. Retrying...
         </div>
 
         <!-- Token Cards -->
@@ -601,22 +676,23 @@
                     <div class="token-icon react">🔥</div>
                     <div class="token-name">
                         <div class="token-symbol">REACT</div>
-                        <div class="token-rank">Rank #<span id="reactRank">287</span></div>
+                        <div class="token-rank">Rank #<span id="reactRank">-</span></div>
                     </div>
                 </div>
                 <div class="token-metrics">
                     <div class="metric">
                         <div class="metric-label">Price (USD)</div>
-                        <div class="metric-value price">$<span id="reactPrice">0.0234</span></div>
+                        <div class="metric-value price">$<span id="reactPrice">-</span></div>
+                        <div class="price-change" id="reactPriceChange">-</div>
                     </div>
                     <div class="metric">
                         <div class="metric-label">Market Cap</div>
-                        <div class="metric-value">$<span id="reactMcap">23.4M</span></div>
+                        <div class="metric-value">$<span id="reactMcap">-</span></div>
                     </div>
                 </div>
                 <div class="data-freshness">
                     <div class="freshness-dot"></div>
-                    <span id="reactFreshness">Live data</span>
+                    <span id="reactFreshness">Fetching live data...</span>
                 </div>
             </div>
 
@@ -626,22 +702,23 @@
                     <div class="token-icon link">⬡</div>
                     <div class="token-name">
                         <div class="token-symbol">LINK</div>
-                        <div class="token-rank">Rank #<span id="linkRank">11</span></div>
+                        <div class="token-rank">Rank #<span id="linkRank">-</span></div>
                     </div>
                 </div>
                 <div class="token-metrics">
                     <div class="metric">
                         <div class="metric-label">Price (USD)</div>
-                        <div class="metric-value price">$<span id="linkPrice">24.77</span></div>
+                        <div class="metric-value price">$<span id="linkPrice">-</span></div>
+                        <div class="price-change" id="linkPriceChange">-</div>
                     </div>
                     <div class="metric">
                         <div class="metric-label">Market Cap</div>
-                        <div class="metric-value">$<span id="linkMcap">16.8B</span></div>
+                        <div class="metric-value">$<span id="linkMcap">-</span></div>
                     </div>
                 </div>
                 <div class="data-freshness">
                     <div class="freshness-dot"></div>
-                    <span id="linkFreshness">Live data</span>
+                    <span id="linkFreshness">Fetching live data...</span>
                 </div>
             </div>
         </div>
@@ -655,27 +732,27 @@
             
             <div class="progress-container">
                 <div class="progress-bar">
-                    <div class="progress-fill" id="progressFill" style="width: 0.14%">
-                        <span class="progress-text" id="progressText">0.14%</span>
+                    <div class="progress-fill" id="progressFill" style="width: 40px">
+                        <span class="progress-text" id="progressText">-</span>
                     </div>
                 </div>
             </div>
 
             <div class="flip-metrics">
                 <div class="flip-metric">
-                    <div class="flip-metric-value" id="flipRatio">0.14%</div>
+                    <div class="flip-metric-value" id="flipRatio">-</div>
                     <div class="flip-metric-label">Flip Ratio</div>
                 </div>
                 <div class="flip-metric">
-                    <div class="flip-metric-value">$<span id="priceToFlip">1,058.54</span></div>
+                    <div class="flip-metric-value">$<span id="priceToFlip">-</span></div>
                     <div class="flip-metric-label">REACT Price to Flip</div>
                 </div>
                 <div class="flip-metric">
-                    <div class="flip-metric-value"><span id="multiplierNeeded">45,236</span>x</div>
+                    <div class="flip-metric-value"><span id="multiplierNeeded">-</span>x</div>
                     <div class="flip-metric-label">Multiplier Needed</div>
                 </div>
                 <div class="flip-metric">
-                    <div class="flip-metric-value">$<span id="mcapGap">16.78B</span></div>
+                    <div class="flip-metric-value">$<span id="mcapGap">-</span></div>
                     <div class="flip-metric-label">Market Cap Gap</div>
                 </div>
             </div>
@@ -708,7 +785,7 @@
                     <div class="milestone-title">First Steps</div>
                     <div class="milestone-description">Reach 1% of LINK's market cap</div>
                 </div>
-                <div class="milestone-value">$168M</div>
+                <div class="milestone-value" id="milestone1Value">-</div>
             </div>
 
             <div class="milestone" id="milestone2">
@@ -717,7 +794,7 @@
                     <div class="milestone-title">Momentum Building</div>
                     <div class="milestone-description">Reach 10% of LINK's market cap</div>
                 </div>
-                <div class="milestone-value">$1.68B</div>
+                <div class="milestone-value" id="milestone2Value">-</div>
             </div>
 
             <div class="milestone" id="milestone3">
@@ -726,7 +803,7 @@
                     <div class="milestone-title">Major Contender</div>
                     <div class="milestone-description">Reach 50% of LINK's market cap</div>
                 </div>
-                <div class="milestone-value">$8.4B</div>
+                <div class="milestone-value" id="milestone3Value">-</div>
             </div>
 
             <div class="milestone" id="milestone4">
@@ -735,7 +812,7 @@
                     <div class="milestone-title">The Flippening</div>
                     <div class="milestone-description">Surpass LINK's market cap</div>
                 </div>
-                <div class="milestone-value">$16.8B</div>
+                <div class="milestone-value" id="milestone4Value">-</div>
             </div>
 
             <div class="milestone" id="milestone5">
@@ -744,7 +821,7 @@
                     <div class="milestone-title">Dominance</div>
                     <div class="milestone-description">2x LINK's market cap</div>
                 </div>
-                <div class="milestone-value">$33.6B</div>
+                <div class="milestone-value" id="milestone5Value">-</div>
             </div>
         </div>
     </div>
@@ -752,23 +829,32 @@
     <!-- Chart.js -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
     <script>
-        // Mock data - in production, fetch from API
+        // Real data containers
         let reactData = {
-            price: 0.0234,
-            marketCap: 23400000,
-            rank: 287,
-            supply: 1000000000
+            price: 0,
+            marketCap: 0,
+            rank: 0,
+            circulatingSupply: 0,
+            totalSupply: 0,
+            priceChange24h: 0
         };
 
         let linkData = {
-            price: 24.77,
-            marketCap: 16800000000,
-            rank: 11,
-            supply: 678000000
+            price: 0,
+            marketCap: 0,
+            rank: 0,
+            circulatingSupply: 0,
+            totalSupply: 0,
+            priceChange24h: 0
         };
+
+        // Historical data for chart
+        let historicalRatios = [];
 
         // Format functions
         function formatNumber(num) {
+            if (!num || num === 0) return '0';
+            if (num >= 1e12) return (num / 1e12).toFixed(2) + 'T';
             if (num >= 1e9) return (num / 1e9).toFixed(2) + 'B';
             if (num >= 1e6) return (num / 1e6).toFixed(2) + 'M';
             if (num >= 1e3) return (num / 1e3).toFixed(2) + 'K';
@@ -776,34 +862,146 @@
         }
 
         function formatPrice(price) {
+            if (!price) return '0';
+            if (price < 0.00001) return price.toFixed(8);
             if (price < 0.01) return price.toFixed(6);
             if (price < 1) return price.toFixed(4);
             return price.toFixed(2);
         }
 
-        // Update UI
+        // Show/hide loading
+        function showLoading() {
+            document.getElementById('loadingOverlay').classList.add('show');
+        }
+
+        function hideLoading() {
+            document.getElementById('loadingOverlay').classList.remove('show');
+        }
+
+        // Show error
+        function showError() {
+            document.getElementById('errorMessage').classList.add('show');
+            setTimeout(() => {
+                document.getElementById('errorMessage').classList.remove('show');
+            }, 5000);
+        }
+
+        // Fetch real data from CoinGecko
+        async function fetchRealData() {
+            showLoading();
+            
+            try {
+                // Fetch both tokens in one API call for efficiency
+                const response = await fetch(
+                    'https://api.coingecko.com/api/v3/simple/price?ids=reactive-network,chainlink&vs_currencies=usd&include_market_cap=true&include_24hr_change=true'
+                );
+                
+                if (!response.ok) {
+                    throw new Error('API request failed');
+                }
+                
+                const data = await response.json();
+                
+                // Update REACT data
+                if (data['reactive-network']) {
+                    reactData.price = data['reactive-network'].usd || 0;
+                    reactData.marketCap = data['reactive-network'].usd_market_cap || 0;
+                    reactData.priceChange24h = data['reactive-network'].usd_24h_change || 0;
+                }
+                
+                // Update LINK data
+                if (data.chainlink) {
+                    linkData.price = data.chainlink.usd || 0;
+                    linkData.marketCap = data.chainlink.usd_market_cap || 0;
+                    linkData.priceChange24h = data.chainlink.usd_24h_change || 0;
+                }
+                
+                // Fetch detailed coin info for more data (ranks, supply)
+                const [reactDetails, linkDetails] = await Promise.all([
+                    fetch('https://api.coingecko.com/api/v3/coins/reactive-network?localization=false&tickers=false&market_data=true&community_data=false&developer_data=false'),
+                    fetch('https://api.coingecko.com/api/v3/coins/chainlink?localization=false&tickers=false&market_data=true&community_data=false&developer_data=false')
+                ]);
+                
+                if (reactDetails.ok) {
+                    const reactInfo = await reactDetails.json();
+                    reactData.rank = reactInfo.market_cap_rank || 0;
+                    reactData.circulatingSupply = reactInfo.market_data?.circulating_supply || 0;
+                    reactData.totalSupply = reactInfo.market_data?.total_supply || reactData.circulatingSupply;
+                }
+                
+                if (linkDetails.ok) {
+                    const linkInfo = await linkDetails.json();
+                    linkData.rank = linkInfo.market_cap_rank || 0;
+                    linkData.circulatingSupply = linkInfo.market_data?.circulating_supply || 0;
+                    linkData.totalSupply = linkInfo.market_data?.total_supply || linkData.circulatingSupply;
+                }
+                
+                // Store historical ratio
+                const currentRatio = (reactData.marketCap / linkData.marketCap) * 100;
+                historicalRatios.push({
+                    time: new Date(),
+                    ratio: currentRatio
+                });
+                
+                // Keep only last 100 data points
+                if (historicalRatios.length > 100) {
+                    historicalRatios.shift();
+                }
+                
+                // Update UI
+                updateUI();
+                hideLoading();
+                
+            } catch (error) {
+                console.error('Error fetching data:', error);
+                showError();
+                hideLoading();
+                
+                // Retry after 10 seconds if error
+                setTimeout(fetchRealData, 10000);
+            }
+        }
+
+        // Update UI with real data
         function updateUI() {
-            // Update token cards
+            // Update REACT card
             document.getElementById('reactPrice').textContent = formatPrice(reactData.price);
             document.getElementById('reactMcap').textContent = formatNumber(reactData.marketCap);
-            document.getElementById('reactRank').textContent = reactData.rank;
+            document.getElementById('reactRank').textContent = reactData.rank || '-';
             
+            // Update REACT price change
+            const reactChangeEl = document.getElementById('reactPriceChange');
+            if (reactData.priceChange24h !== 0) {
+                reactChangeEl.textContent = `${reactData.priceChange24h >= 0 ? '+' : ''}${reactData.priceChange24h.toFixed(2)}% (24h)`;
+                reactChangeEl.className = reactData.priceChange24h >= 0 ? 'price-change positive' : 'price-change negative';
+            }
+            
+            // Update LINK card
             document.getElementById('linkPrice').textContent = formatPrice(linkData.price);
             document.getElementById('linkMcap').textContent = formatNumber(linkData.marketCap);
-            document.getElementById('linkRank').textContent = linkData.rank;
+            document.getElementById('linkRank').textContent = linkData.rank || '-';
+            
+            // Update LINK price change
+            const linkChangeEl = document.getElementById('linkPriceChange');
+            if (linkData.priceChange24h !== 0) {
+                linkChangeEl.textContent = `${linkData.priceChange24h >= 0 ? '+' : ''}${linkData.priceChange24h.toFixed(2)}% (24h)`;
+                linkChangeEl.className = linkData.priceChange24h >= 0 ? 'price-change positive' : 'price-change negative';
+            }
             
             // Calculate flip metrics
-            const flipRatio = (reactData.marketCap / linkData.marketCap) * 100;
-            const priceToFlip = linkData.marketCap / reactData.supply;
-            const multiplierNeeded = priceToFlip / reactData.price;
+            const flipRatio = linkData.marketCap > 0 ? (reactData.marketCap / linkData.marketCap) * 100 : 0;
+            const priceToFlip = reactData.circulatingSupply > 0 ? linkData.marketCap / reactData.circulatingSupply : 0;
+            const multiplierNeeded = reactData.price > 0 ? priceToFlip / reactData.price : 0;
             const mcapGap = linkData.marketCap - reactData.marketCap;
             
-            // Update progress
-            document.getElementById('progressFill').style.width = Math.min(flipRatio, 100) + '%';
-            document.getElementById('progressText').textContent = flipRatio.toFixed(2) + '%';
+            // Update progress bar
+            const progressFill = document.getElementById('progressFill');
+            const progressWidth = Math.min(Math.max(flipRatio, 0.1), 100); // Min 0.1% for visibility
+            progressFill.style.width = progressWidth + '%';
+            document.getElementById('progressText').textContent = flipRatio.toFixed(3) + '%';
             
-            // Update metrics
-            document.getElementById('flipRatio').textContent = flipRatio.toFixed(2) + '%';
+            // Update flip metrics
+            document.getElementById('flipRatio').textContent = flipRatio.toFixed(3) + '%';
             document.getElementById('priceToFlip').textContent = formatPrice(priceToFlip);
             document.getElementById('multiplierNeeded').textContent = formatNumber(multiplierNeeded);
             document.getElementById('mcapGap').textContent = formatNumber(mcapGap);
@@ -811,26 +1009,42 @@
             // Update milestones
             updateMilestones();
             
-            // Update timestamp
-            document.getElementById('lastUpdate').textContent = new Date().toLocaleString();
+            // Update data freshness
+            const now = new Date();
+            document.getElementById('lastUpdate').textContent = now.toLocaleString();
+            document.getElementById('reactFreshness').textContent = 'Live data';
+            document.getElementById('linkFreshness').textContent = 'Live data';
+            
+            // Update chart if we have data
+            if (historicalRatios.length > 0 && flipChart) {
+                updateChartWithRealData();
+            }
         }
 
-        // Update milestones
+        // Update milestones with real values
         function updateMilestones() {
             const milestones = [
-                { id: 'milestone1', target: linkData.marketCap * 0.01 },
-                { id: 'milestone2', target: linkData.marketCap * 0.10 },
-                { id: 'milestone3', target: linkData.marketCap * 0.50 },
-                { id: 'milestone4', target: linkData.marketCap },
-                { id: 'milestone5', target: linkData.marketCap * 2 }
+                { id: 'milestone1', valueId: 'milestone1Value', target: linkData.marketCap * 0.01 },
+                { id: 'milestone2', valueId: 'milestone2Value', target: linkData.marketCap * 0.10 },
+                { id: 'milestone3', valueId: 'milestone3Value', target: linkData.marketCap * 0.50 },
+                { id: 'milestone4', valueId: 'milestone4Value', target: linkData.marketCap },
+                { id: 'milestone5', valueId: 'milestone5Value', target: linkData.marketCap * 2 }
             ];
             
             milestones.forEach(milestone => {
                 const element = document.getElementById(milestone.id);
-                if (reactData.marketCap >= milestone.target) {
-                    element.classList.add('achieved');
-                } else {
-                    element.classList.remove('achieved');
+                const valueElement = document.getElementById(milestone.valueId);
+                
+                if (valueElement) {
+                    valueElement.textContent = '$' + formatNumber(milestone.target);
+                }
+                
+                if (element) {
+                    if (reactData.marketCap >= milestone.target) {
+                        element.classList.add('achieved');
+                    } else {
+                        element.classList.remove('achieved');
+                    }
                 }
             });
         }
@@ -880,7 +1094,7 @@
                         displayColors: false,
                         callbacks: {
                             label: function(context) {
-                                return 'Flip Ratio: ' + context.parsed.y.toFixed(3) + '%';
+                                return 'Flip Ratio: ' + context.parsed.y.toFixed(4) + '%';
                             }
                         }
                     }
@@ -906,7 +1120,7 @@
                             color: 'rgba(255, 255, 255, 0.4)',
                             font: { size: 11 },
                             callback: function(value) {
-                                return value.toFixed(2) + '%';
+                                return value.toFixed(3) + '%';
                             }
                         }
                     }
@@ -914,112 +1128,41 @@
             }
         });
 
-        // Generate chart data
-        function generateChartData(period) {
-            const now = Date.now();
-            const data = [];
-            const labels = [];
+        // Update chart with real historical data
+        function updateChartWithRealData() {
+            const labels = historicalRatios.map(d => {
+                const date = new Date(d.time);
+                return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+            });
             
-            let points = 24;
-            let interval = 3600000; // 1 hour
+            const data = historicalRatios.map(d => d.ratio);
             
-            switch(period) {
-                case '7d':
-                    points = 7 * 24;
-                    break;
-                case '30d':
-                    points = 30;
-                    interval = 86400000; // 1 day
-                    break;
-                case '90d':
-                    points = 90;
-                    interval = 86400000;
-                    break;
-                case '1y':
-                    points = 52;
-                    interval = 604800000; // 1 week
-                    break;
-            }
-            
-            // Generate mock historical data
-            for (let i = points; i >= 0; i--) {
-                const timestamp = now - (i * interval);
-                const date = new Date(timestamp);
-                
-                // Simulate gradual growth
-                const baseRatio = 0.14;
-                const growth = (points - i) / points * 0.02;
-                const randomVariation = (Math.random() - 0.5) * 0.01;
-                const ratio = Math.max(0.10, baseRatio + growth + randomVariation);
-                
-                data.push(ratio);
-                
-                if (period === '24h') {
-                    labels.push(date.getHours() + ':00');
-                } else if (period === '7d') {
-                    if (i % 24 === 0) {
-                        labels.push(date.toLocaleDateString('en', { weekday: 'short' }));
-                    } else {
-                        labels.push('');
-                    }
-                } else {
-                    labels.push(date.toLocaleDateString('en', { month: 'short', day: 'numeric' }));
-                }
-            }
-            
-            return { labels, data };
+            flipChart.data.labels = labels;
+            flipChart.data.datasets[0].data = data;
+            flipChart.update();
         }
 
-        // Time selector
+        // Time selector (for future implementation with historical API data)
         document.querySelectorAll('.time-btn').forEach(btn => {
             btn.addEventListener('click', function() {
                 document.querySelectorAll('.time-btn').forEach(b => b.classList.remove('active'));
                 this.classList.add('active');
-                
-                const { labels, data } = generateChartData(this.dataset.period);
-                flipChart.data.labels = labels;
-                flipChart.data.datasets[0].data = data;
-                flipChart.update();
+                // In a full implementation, you would fetch historical data here
             });
         });
 
-        // Simulate live updates
-        function simulatePriceChanges() {
-            // Small random changes to simulate market movement
-            reactData.price *= (1 + (Math.random() - 0.5) * 0.02);
-            reactData.marketCap = reactData.price * reactData.supply;
-            
-            linkData.price *= (1 + (Math.random() - 0.5) * 0.01);
-            linkData.marketCap = linkData.price * linkData.supply;
-            
-            updateUI();
-        }
-
         // Initialize
-        updateUI();
-        const { labels, data } = generateChartData('24h');
-        flipChart.data.labels = labels;
-        flipChart.data.datasets[0].data = data;
-        flipChart.update();
+        fetchRealData();
 
-        // Update every 5 seconds for demo (in production, this would be API calls)
-        setInterval(simulatePriceChanges, 5000);
+        // Refresh data every 60 seconds
+        setInterval(fetchRealData, 60000);
 
-        // Fetch real data (implement when API is ready)
-        async function fetchRealData() {
-            try {
-                // const response = await fetch('/api/flippening/react-link');
-                // const data = await response.json();
-                // reactData = data.react;
-                // linkData = data.link;
-                // updateUI();
-            } catch (error) {
-                console.error('Error fetching data:', error);
+        // Also refresh if page becomes visible again
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) {
+                fetchRealData();
             }
-        }
-
-        // Refresh every 5 minutes
-        setInterval(fetchRealData, 5 * 60 * 1000);
+        });
     </script>
 </body>
 </html>
