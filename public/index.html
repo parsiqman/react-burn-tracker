@@ -691,30 +691,10 @@
                     </div>
                     <div class="stat-icon">🌐</div>
                 </div>
-                <div class="stat-value" style="font-size: 24px; background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Live Network Activity</div>
-                <div class="ecosystem-logos" style="display: flex; align-items: center; gap: 12px; margin-top: 12px; justify-content: center;">
-                    <div style="width: 36px; height: 36px; background: linear-gradient(135deg, #667eea, #764ba2); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-weight: bold; color: white; font-size: 16px;">Q</div>
-                    <div style="width: 36px; height: 36px; background: linear-gradient(135deg, #51CF66, #21C55F); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-weight: bold; color: white; font-size: 16px;">W</div>
-                    <div style="width: 36px; height: 36px; background: rgba(255, 255, 255, 0.1); border: 2px dashed rgba(255, 255, 255, 0.2); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: rgba(255, 255, 255, 0.3); font-size: 20px;">+</div>
-                </div>
+                <div class="stat-value" style="font-size: 24px; background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Ecosystem Monitor</div>
                 <div class="card-bg-icon">🌐</div>
                 <div class="card-hover-text">
                     Explore Ecosystem <span>→</span>
-                </div>
-            </div>
-
-            <!-- 24h Burn Volume -->
-            <div class="stat-card">
-                <div class="stat-header">
-                    <div class="stat-label">24h Burn Volume</div>
-                    <div class="stat-icon">📊</div>
-                </div>
-                <div class="stat-value" id="dailyBurn"><div class="skeleton"></div></div>
-                <div class="stat-change positive" id="dailyChange">
-                    <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-                        <path d="M6 2L10 7H2L6 2Z"/>
-                    </svg>
-                    <span>Loading...</span>
                 </div>
             </div>
 
@@ -953,20 +933,11 @@
                     heroValue.style.opacity = '1';
                 }, 100);
                 
-                document.getElementById('totalBurnedUSD').innerHTML = `≈ $${formatNumber(total.totalUsdValue || (total.totalBurned * 0.065))} USD`;
-                document.getElementById('dailyBurn').textContent = formatNumber(daily.burned24h);
+                document.getElementById('totalBurnedUSD').innerHTML = `≈ ${formatNumber(total.totalUsdValue || (total.totalBurned * 0.065))} USD`;
                 document.getElementById('totalTransactions').textContent = formatNumber(total.totalTransactions);
                 document.getElementById('uniqueAddresses').textContent = formatNumber(total.uniqueAddresses);
                 
                 // Update changes with better formatting
-                const dailyChangeEl = document.getElementById('dailyChange');
-                dailyChangeEl.innerHTML = `
-                    <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-                        <path d="M6 2L10 7H2L6 2Z"/>
-                    </svg>
-                    <span>${daily.transactions24h} today</span>
-                `;
-                
                 document.getElementById('addressChange').innerHTML = 
                     `<span style="color: var(--success);">+${daily.uniqueAddresses24h || 0}</span> in 24h`;
                 
