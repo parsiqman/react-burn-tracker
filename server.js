@@ -150,179 +150,96 @@ const KNOWN_ADDRESSES = {
   // Add more known addresses as discovered
 };
 
-// Price tracking variables with sensible defaults
-let currentPrice = 0.065; // Default price if API fails
+// Price tracking variables
+let currentPrice = 0;
 let priceData = {
-  price: 0.065,
+  price: 0,
   marketCap: 0,
   priceChange24h: 0,
   circulatingSupply: 0,
   totalSupply: 0,
   rank: 0,
-  lastUpdated: null,
-  nextUpdateDue: null
+  lastUpdated: null
 };
 
-// Update schedule - 4 times per day (every 6 hours)
-const PRICE_UPDATE_INTERVAL = 6 * 60 * 60 * 1000; // 6 hours
-const PRICE_UPDATE_RETRY = 5 * 60 * 1000; // Retry after 5 minutes if failed
-
-let priceUpdateTimer = null;
-let priceUpdateInProgress = false;
-
-// Load cached price from database
-async function loadCachedPrice() {
-  return new Promise((resolve) => {
+// CoinGecko API integration
+async function updateTokenPrice() {
+  try {
+    console.log('Fetching REACT price from CoinGecko...');
+    
+    // Fetch price data from CoinGecko
+    const priceResponse = await fetch(
+      'https://api.coingecko.com/api/v3/simple/price?ids=reactive-network&vs_currencies=usd&include_market_cap=true&include_24hr_change=true'
+    );
+    
+    if (!priceResponse.ok) {
+      throw new Error(`CoinGecko API error: ${priceResponse.status}`);
+    }
+    
+    const priceJson = await priceResponse.json();
+    
+    if (priceJson['reactive-network']) {
+      priceData.price = priceJson['reactive-network'].usd || 0;
+      priceData.marketCap = priceJson['reactive-network'].usd_market_cap || 0;
+      priceData.priceChange24h = priceJson['reactive-network'].usd_24h_change || 0;
+      currentPrice = priceData.price;
+      
+      console.log(`REACT price updated: $${currentPrice} (${priceData.priceChange24h >= 0 ? '+' : ''}${priceData.priceChange24h.toFixed(2)}%)`);
+    }
+    
+    // Fetch detailed coin info for more data (optional, can be disabled if rate limited)
+    try {
+      const detailsResponse = await fetch(
+        'https://api.coingecko.com/api/v3/coins/reactive-network?localization=false&tickers=false&market_data=true&community_data=false&developer_data=false'
+      );
+      
+      if (detailsResponse.ok) {
+        const detailsJson = await detailsResponse.json();
+        
+        if (detailsJson.market_data) {
+          priceData.rank = detailsJson.market_cap_rank || 0;
+          priceData.circulatingSupply = detailsJson.market_data.circulating_supply || 0;
+          priceData.totalSupply = detailsJson.market_data.total_supply || priceData.circulatingSupply;
+        }
+      }
+    } catch (detailError) {
+      // Non-critical error, just log it
+      console.log('Could not fetch detailed coin info:', detailError.message);
+    }
+    
+    priceData.lastUpdated = new Date().toISOString();
+    
+    // Store price in database for historical tracking (optional)
+    db.run(
+      'INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)',
+      ['current_react_price', JSON.stringify(priceData)],
+      (err) => {
+        if (err) console.error('Error storing price data:', err);
+      }
+    );
+    
+  } catch (error) {
+    console.error('Error updating REACT price:', error.message);
+    
+    // Try to load last known price from database as fallback
     db.get('SELECT value FROM metadata WHERE key = ?', ['current_react_price'], (err, row) => {
       if (!err && row) {
         try {
           const savedData = JSON.parse(row.value);
-          if (savedData.price && savedData.price > 0) {
-            priceData = { ...savedData };
-            currentPrice = savedData.price;
-            console.log('Loaded cached price: $' + currentPrice.toFixed(6));
-          }
-        } catch (e) {
-          console.error('Error parsing cached price:', e);
+          priceData = savedData;
+          currentPrice = savedData.price;
+          console.log('Using last known price from database: $' + currentPrice);
+        } catch (parseError) {
+          console.error('Error parsing saved price data:', parseError);
         }
       }
-      resolve();
     });
-  });
-}
-
-// Optimized price update function - only runs a few times per day
-async function updateTokenPrice() {
-  if (priceUpdateInProgress) {
-    console.log('Price update already in progress, skipping...');
-    return;
-  }
-  
-  priceUpdateInProgress = true;
-  
-  try {
-    console.log(`[${new Date().toISOString()}] Updating REACT price from CoinGecko...`);
-    
-    // Create an AbortController for timeout
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
-    
-    // Fetch basic price data
-    const response = await fetch(
-      'https://api.coingecko.com/api/v3/simple/price?ids=reactive-network&vs_currencies=usd&include_market_cap=true&include_24hr_change=true',
-      { 
-        signal: controller.signal,
-        headers: {
-          'Accept': 'application/json',
-        }
-      }
-    );
-    
-    clearTimeout(timeoutId);
-    
-    if (!response.ok) {
-      throw new Error(`CoinGecko API returned ${response.status}`);
-    }
-    
-    const data = await response.json();
-    
-    if (data['reactive-network'] && data['reactive-network'].usd) {
-      const newPrice = data['reactive-network'].usd;
-      
-      // Sanity check - price shouldn't change by more than 50% in 6 hours
-      if (currentPrice > 0 && (newPrice > currentPrice * 1.5 || newPrice < currentPrice * 0.5)) {
-        console.warn(`Large price change detected: ${currentPrice} -> ${newPrice}. Using cached value.`);
-        throw new Error('Suspicious price change detected');
-      }
-      
-      // Update price data
-      priceData.price = newPrice;
-      currentPrice = newPrice;
-      priceData.marketCap = data['reactive-network'].usd_market_cap || priceData.marketCap;
-      priceData.priceChange24h = data['reactive-network'].usd_24h_change || 0;
-      priceData.lastUpdated = new Date().toISOString();
-      priceData.nextUpdateDue = new Date(Date.now() + PRICE_UPDATE_INTERVAL).toISOString();
-      
-      // Store in database
-      await new Promise((resolve) => {
-        db.run(
-          'INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)',
-          ['current_react_price', JSON.stringify(priceData)],
-          (err) => {
-            if (err) console.error('Error storing price:', err);
-            resolve();
-          }
-        );
-      });
-      
-      // Broadcast to WebSocket clients directly
-      broadcast({
-        type: 'price_update',
-        data: priceData
-      });
-      
-      console.log(`✓ Price updated successfully: $${currentPrice.toFixed(6)} (${priceData.priceChange24h >= 0 ? '+' : ''}${priceData.priceChange24h.toFixed(2)}%)`);
-      
-      // Schedule next update
-      scheduleNextPriceUpdate(PRICE_UPDATE_INTERVAL);
-      
-    } else {
-      throw new Error('Invalid price data received from API');
-    }
-    
-  } catch (error) {
-    console.error('Price update error:', error.message);
-    
-    // If it's a timeout or network error, retry sooner
-    if (error.name === 'AbortError' || error.message.includes('fetch')) {
-      console.log('Network error - will retry in 5 minutes');
-      scheduleNextPriceUpdate(PRICE_UPDATE_RETRY);
-    } else {
-      // For other errors, wait the full interval
-      scheduleNextPriceUpdate(PRICE_UPDATE_INTERVAL);
-    }
-  } finally {
-    priceUpdateInProgress = false;
   }
 }
 
-// Schedule next price update
-function scheduleNextPriceUpdate(delay) {
-  if (priceUpdateTimer) {
-    clearTimeout(priceUpdateTimer);
-  }
-  
-  priceUpdateTimer = setTimeout(() => {
-    updateTokenPrice();
-  }, delay);
-  
-  const nextUpdate = new Date(Date.now() + delay);
-  console.log(`Next price update scheduled for: ${nextUpdate.toLocaleString()}`);
-}
-
-// Initialize price system
-async function initializePriceSystem() {
-  // First, load any cached price
-  await loadCachedPrice();
-  
-  // Then attempt to update
-  await updateTokenPrice();
-  
-  // If we still don't have a price, use the default
-  if (currentPrice === 0) {
-    currentPrice = 0.065;
-    console.log('Using default price: $0.065');
-  }
-}
-
-// Don't block server startup - initialize prices in background
-setTimeout(() => {
-  initializePriceSystem().catch(err => {
-    console.error('Failed to initialize price system:', err);
-    // Even if it fails, schedule an update
-    scheduleNextPriceUpdate(PRICE_UPDATE_RETRY);
-  });
-}, 1000);
+// Update price on startup and every 60 seconds (be mindful of rate limits)
+updateTokenPrice();
+setInterval(updateTokenPrice, 60 * 1000); // Every minute
 
 // Create HTTP server
 const server = require('http').createServer(app);
